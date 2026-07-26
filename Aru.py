@@ -8,6 +8,7 @@ from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    WebAppInfo,
 )
 
 from telegram.constants import (
@@ -103,6 +104,34 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         disable_web_page_preview=True
     )
 
+
+#=========Ludo game
+async def ludo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "🎮 Enter Ludo",
+                web_app=WebAppInfo(
+                    url="https://aarubot.onrender.com"
+                )
+            )
+        ]
+    ]
+
+    await update.message.reply_text(
+        """
+🎲 <b>Aaru Ludo Game</b>
+
+Play Ludo with other players and earn coins!
+
+🏆 Win matches
+💰 Earn rewards
+🎮 Have fun
+        """,
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 # ==========================================================
 # FONT TABLES
@@ -332,6 +361,7 @@ async def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("f", font))
     app.add_handler(CommandHandler("chat", chat))
+    app.add_handler(CommandHandler("ludo", ludo))
 
     app.add_handler(
         MessageHandler(
