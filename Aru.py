@@ -461,15 +461,42 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
 
-        reply = await ai_chat(message.text)
+    user_id = update.effective_user.id
+    user_message = message.text
 
-        await message.reply_text(reply)
+    # Save/update user information
+    users_db.update_one(
+        {"user_id": user_id},
+        {
+            "$set": {
+                "first_name": update.effective_user.first_name,
+                "username": update.effective_user.username
+            },
+            "$setOnInsert": {
+                "user_id": user_id
+            },
+            "$addToSet": {
+                "memory": user_message
+            }
+        },
+        upsert=True
+    )
 
-    except Exception as e:
+    # Generate AI reply
+    reply = await ai_chat(
+        user_id,
+        user_message
+    )
 
-        await message.reply_text(
-            f"Error:\n{e}"
-        )
+    await message.reply_text(reply)
+
+except Exception as e:
+
+    print(e)
+
+    await message.reply_text(
+        f"Error:\n{e}"
+    )
 
 import random
 
