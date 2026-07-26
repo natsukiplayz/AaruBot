@@ -325,7 +325,6 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==========================
 # MAIN
 # ==========================
-
 async def main():
 
     app = Application.builder().token(BOT_TOKEN).build()
@@ -359,12 +358,10 @@ async def main():
     await app.updater.start_webhook(
         listen="0.0.0.0",
         port=PORT,
-        webhook_url=webhook_url
+        url_path=BOT_TOKEN
     )
 
-    # Keep Render service alive
-    while True:
-        await asyncio.sleep(3600)
+    await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
