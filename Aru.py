@@ -354,8 +354,7 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==========================
 # MAIN
 # ==========================
-def main():
-
+async def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -364,17 +363,19 @@ def main():
     app.add_handler(CommandHandler("ludo", ludo))
 
     app.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            ai_message
-        )
+        MessageHandler(filters.TEXT & ~filters.COMMAND, ai_message)
     )
 
-    app.run_polling(
-        drop_pending_updates=True,
-        allowed_updates=Update.ALL_TYPES
-    )
+    await app.bot.delete_webhook(drop_pending_updates=True)
+
+    print("Aaru Bot Started!")
+
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+
+    await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
