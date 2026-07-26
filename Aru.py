@@ -232,22 +232,6 @@ async def font(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(result)
 
-PREMIUM_EMOJIS = {
-    ":heart:": "6271407384720051182",
-    ":laugh:": "6064341698505349289",
-    ":eyes:": "6109403885489623596",
-    ":eyes2:": "6158981960002704763",
-    ":angry:": "6334667726094599941",
-    ":angry2:": "6318855971498105536",
-    ":yawn:": "5370562295309017355",
-    ":melt:": "5470082691921619031",
-    ":unamused:": "6334649794606139137",
-    ":expressionless:": "6161183487224193623",
-    ":cry:": "6334754651937703379",
-    ":fear:": "6228534372631318607",
-    ":cold:": "6334323261127526515",
-    ":shock:": "6334547209312274007",
-}
 
 API_KEY = os.getenv("API_KEY")
 
@@ -385,26 +369,96 @@ GENERAL:
 
     return response.choices[0].message.content
 
+from telegram import MessageEntity
+
+EMOJI_MAP = {
+    ":heart:": ("❤️", "6271407384720051182"),
+    ":laugh:": ("😂", "6064341698505349289"),
+    ":eyes:": ("👀", "6109403885489623596"),
+    ":eyes2:": ("👀", "6158981960002704763"),
+    ":angry:": ("😠", "6334667726094599941"),
+    ":angry2:": ("😡", "6318855971498105536"),
+    ":yawn:": ("🥱", "5370562295309017355"),
+    ":melt:": ("🫠", "5470082691921619031"),
+    ":unamused:": ("😒", "6334649794606139137"),
+    ":expressionless:": ("😑", "6161183487224193623"),
+    ":cry:": ("😭", "6334754651937703379"),
+    ":fear:": ("😨", "6228534372631318607"),
+    ":cold:": ("😰", "6334323261127526515"),
+    ":shock:": ("😱", "6334547209312274007"),
+}
+
+def utf16_len(s):
+    return len(s.encode("utf-16-le")) // 2
+
 def convert_premium_emojis(text):
     entities = []
 
-    for placeholder, emoji_id in PREMIUM_EMOJIS.items():
-        while placeholder in text:
-            offset = text.index(placeholder)
+    for placeholder, (emoji, emoji_id) in EMOJI_MAP.items():
 
-            # Replace placeholder with a single emoji character
-            text = text.replace(placeholder, "😀", 1)
+        while placeholder in text:
+
+            pos = text.index(placeholder)
+
+            before = text[:pos]
+
+            offset = utf16_len(before)
+
+            text = text.replace(placeholder, emoji, 1)
 
             entities.append(
                 MessageEntity(
-                    type="custom_emoji",
+                    type=MessageEntity.CUSTOM_EMOJI,
                     offset=offset,
-                    length=2,
+                    length=utf16_len(emoji),
                     custom_emoji_id=emoji_id,
                 )
             )
 
     return text, entities
+
+async def eid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    message = update.message
+
+    # Reply to a sticker
+    if message.reply_to_message and message.reply_to_message.sticker:
+
+        sticker = message.reply_to_message.sticker
+
+        if sticker.custom_emoji_id:
+            await message.reply_text(
+                f'":???:": ("🙂", "{sticker.custom_emoji_id}")'
+            )
+        else:
+            await message.reply_text(
+                "This sticker doesn't have a custom emoji ID."
+            )
+        return
+
+    # Current message contains a custom emoji
+    if message.entities:
+
+        for entity in message.entities:
+
+            if entity.type == MessageEntityType.CUSTOM_EMOJI:
+
+                emoji = message.text[
+                    entity.offset:
+                    entity.offset + entity.length
+                ]
+
+                await message.reply_text(
+                    f'":???:": ("{emoji}", "{entity.custom_emoji_id}")'
+                )
+                return
+
+    await message.reply_text(
+        "Usage:\n"
+        "/eid 😱\n"
+        "or send /eid followed by a Premium Emoji.\n"
+        "You can also reply to a custom emoji sticker."
+    )
 
 #=====add costom emoji===
 async def addpack(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -624,6 +678,7 @@ async def main():
     app.add_handler(CommandHandler("chat", chat))
     app.add_handler(CommandHandler("ludo", ludo))
     app.add_handler(CommandHandler("addpack", addpack))
+    app.add_handler(CommandHandler("eid", eid))
 
     app.add_handler(
         MessageHandler(
