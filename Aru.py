@@ -815,15 +815,15 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # NAME CALL CHECK
         # ==========================
 
-       called_name = any(
-        word in text.split()
-        for word in [
-            "aaru",
-            "aru",
-            "aaru!",
-            "aru!"
-        ]
-    )
+        called_name = any(
+            word in text.split()
+            for word in [
+                "aaru",
+                "aru",
+                "aaru!",
+                "aru!"
+            ]
+        )
 
 
 
