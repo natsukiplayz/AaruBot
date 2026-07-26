@@ -1,4 +1,5 @@
 import os
+import asyncio
 
 from pymongo import MongoClient
 from mistralai import Mistral
@@ -324,9 +325,7 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==========================
 # MAIN
 # ==========================
-
 def main():
-
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -349,11 +348,10 @@ def main():
         listen="0.0.0.0",
         port=PORT,
         webhook_url=f"{RENDER_URL}/{BOT_TOKEN}",
-        secret_token=BOT_TOKEN
+        secret_token=BOT_TOKEN,
     )
 
-   import asyncio
 
 if __name__ == "__main__":
-  loop = asyncio.new_event_loop()
-  asyncio.set_event_loop(loop)
+    asyncio.set_event_loop(asyncio.new_event_loop())
+    main()
