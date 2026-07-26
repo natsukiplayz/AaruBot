@@ -325,15 +325,9 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==========================
 # MAIN
 # ==========================
-import asyncio
 
-try:
-    asyncio.get_event_loop()
-except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())
+async def main():
 
-
-def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -349,18 +343,29 @@ def main():
 
     PORT = int(os.environ.get("PORT", 10000))
     RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
-    WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
+
+    webhook_url = f"{RENDER_URL}/{BOT_TOKEN}"
 
     print("Aaru Bot is running...")
 
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=f"{RENDER_URL}/{BOT_TOKEN}",
-        secret_token=WEBHOOK_SECRET,
+    await app.initialize()
+    await app.start()
+
+    await app.bot.set_webhook(
+        url=webhook_url,
         drop_pending_updates=True
     )
 
+    await app.updater.start_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        webhook_url=webhook_url
+    )
+
+    # Keep Render service alive
+    while True:
+        await asyncio.sleep(3600)
+
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
