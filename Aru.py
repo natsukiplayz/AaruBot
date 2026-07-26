@@ -394,7 +394,8 @@ you should say: huhhh?? aur esa kyu 😒
 - You're only sister of other girls but not boys
 """
 
-response = client.chat.complete(
+
+    response = client.chat.complete(
         model="mistral-large-latest",
         messages=[
             {
@@ -413,43 +414,44 @@ response = client.chat.complete(
 
     reply = response.choices[0].message.content
 
-    # Convert any normal emojis the model may output into placeholders
-    for placeholder, (emoji, _) in EMOJI_MAP.items():
-        reply = reply.replace(emoji, placeholder)
-
-    return reply
 
 from telegram import MessageEntity
 
 
-NORMAL_TO_PLACEHOLDER = {
-    "❤️": ":heart:",
-    "😂": ":laugh:",
-    "😊": ":smile:",
-    "😁": ":grin:",
-    "👀": ":eyes:",
-    "😠": ":angry:",
-    "😡": ":angry2:",
-    "🥱": ":yawn:",
-    "🫠": ":melt:",
-    "😒": ":unamused:",
-    "😑": ":expressionless:",
-    "😭": ":cry:",
-    "😢": ":cry2:",
-    "😨": ":fear:",
-    "😰": ":cold:",
-    "😱": ":shock:",
-    "👏": ":clap:",
-    "💃": ":dance:",
-    "🫥": ":dotted:",
-    "😔": ":sad:",
-    "😎": ":cool:",
+EMOJI_MAP = {
+    ":heart:": ("❤️", "6271407384720051182"),
+    ":heart2:": ("❤️", "6269340616392445825"),
+
+    ":laugh:": ("😂", "6064341698505349289"),
+    ":smile:": ("😊", "5375125990118793401"),
+    ":grin:": ("😁", "6228626070183088739"),
+
+    ":eyes:": ("👀", "6109403885489623596"),
+    ":eyes2:": ("👀", "6158981960002704763"),
+
+    ":angry:": ("😠", "6334667726094599941"),
+    ":angry2:": ("😡", "6318855971498105536"),
+
+    ":yawn:": ("🥱", "5370562295309017355"),
+    ":melt:": ("🫠", "5470082691921619031"),
+
+    ":unamused:": ("😒", "6334649794606139137"),
+    ":expressionless:": ("😑", "6161183487224193623"),
+
+    ":cry:": ("😭", "6334754651937703379"),
+    ":cry2:": ("😢", "5298722881314764502"),
+
+    ":fear:": ("😨", "6228534372631318607"),
+    ":cold:": ("😰", "6334323261127526515"),
+    ":shock:": ("😱", "6334547209312274007"),
+
+    ":clap:": ("👏", "6064284639864822411"),
+    ":dance:": ("💃", "6271515257118658341"),
+
+    ":dotted:": ("🫥", "6231081125029088539"),
+    ":sad:": ("😔", "6231245905744367218"),
+    ":cool:": ("😎", "6066879272558008581"),
 }
-
-for emoji, placeholder in NORMAL_TO_PLACEHOLDER.items():
-    reply = reply.replace(emoji, placeholder)
-
-text, entities = convert_premium_emojis(reply)
 
 def utf16_len(text):
     return len(text.encode("utf-16-le")) // 2
