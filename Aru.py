@@ -667,9 +667,12 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message or not message.text:
         return
 
+    # Get bot info once (works in both private and groups)
+    me = await context.bot.get_me()
+
     text = message.text.lower().strip()
 
-    # Private → Always ON
+    # Private -> Always ON
     if update.effective_chat.type == ChatType.PRIVATE:
         mentioned = True
 
@@ -683,15 +686,15 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not enabled:
             return
 
-        me = await context.bot.get_me()
-
         mentioned = f"@{me.username.lower()}" in text
 
+    # Check if replying to the bot
     replied = (
-        message.reply_to_message
+        message.reply_to_message is not None
         and message.reply_to_message.from_user.id == me.id
     )
 
+    # Check if bot name is mentioned
     called_name = any(
         word in text
         for word in [
@@ -704,6 +707,7 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     )
 
+    # In groups, respond only if mentioned, replied to, or called by name
     if update.effective_chat.type != ChatType.PRIVATE:
         if not (mentioned or replied or called_name):
             return
@@ -735,6 +739,9 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_message
         )
 
+        if not reply:
+            return
+
         text, entities = convert_premium_emojis(reply)
 
         await message.reply_text(
@@ -748,7 +755,9 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Error:\n{e}"
         )
 
+
 import random
+
 
 def get_custom_emoji():
 
@@ -759,9 +768,7 @@ def get_custom_emoji():
     if not pack:
         return None
 
-    return random.choice(
-        pack["emojis"]
-    )
+    return random.choice(pack["emojis"])
 
 # ==========================
 # MAIN
