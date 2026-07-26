@@ -24,6 +24,25 @@ from telegram.ext import (
     filters,
 )
 
+from flask import Flask
+import threading
+
+keep_alive_app = Flask(__name__)
+
+@keep_alive_app.route("/")
+def home():
+    return "Aaru Bot is alive!"
+
+def run_web():
+    keep_alive_app.run(
+        host="0.0.0.0",
+        port=8080
+    )
+
+def keep_alive():
+    thread = threading.Thread(target=run_web)
+    thread.start()
+
 # ==========================
 # CONFIG
 # ==========================
@@ -354,7 +373,9 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==========================
 # MAIN
 # ==========================
+
 async def main():
+
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -363,10 +384,15 @@ async def main():
     app.add_handler(CommandHandler("ludo", ludo))
 
     app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, ai_message)
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            ai_message
+        )
     )
 
-    await app.bot.delete_webhook(drop_pending_updates=True)
+    await app.bot.delete_webhook(
+        drop_pending_updates=True
+    )
 
     print("Aaru Bot Started!")
 
@@ -374,8 +400,14 @@ async def main():
     await app.start()
     await app.updater.start_polling()
 
+    # Keep bot running
     await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
+
+    # Start web server for Render/UptimeRobot
+    keep_alive()
+
+    # Start Telegram bot
     asyncio.run(main())
