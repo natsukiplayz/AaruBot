@@ -57,6 +57,8 @@ MONGO_URI = os.getenv("MONGO_URI")
 OD1 = 8752939430
 OD2 = 6462525689
 
+DATA_MARKER = "|||DATA|||"
+
 SUPPORT_LINK = "https://t.me/AaruSupport"
 UPDATES_LINK = "https://t.me/IgAaruu"
 GROUP_LINK = "https://t.me/Uchiha_ClaniX"
@@ -256,7 +258,6 @@ async def ai_chat(user_id, user_message):
     )
 
     memory = {}
-
     history = []
 
     if user_data:
@@ -301,7 +302,7 @@ Personality:
 - No *actions*, no roleplay.
 
 Conversation:
-- Reply only to the latest message.
+- Reply only to the latest user message.
 - Don't force questions.
 - Don't assume feelings.
 - If user jokes, joke back.
@@ -352,7 +353,7 @@ After your reply add:
 
 {DATA_MARKER}key=value
 
-Allowed:
+Allowed keys:
 name, age, gender, city, education, job, relationship, interest
 
 If nothing new:
@@ -393,7 +394,10 @@ If nothing new:
         reply = response.choices[0].message.content
 
 
-        # Extract memory data
+        # ==========================
+        # EXTRACT MEMORY DATA
+        # ==========================
+
         if DATA_MARKER in reply:
 
             answer, data = reply.split(
@@ -403,37 +407,57 @@ If nothing new:
 
             reply = answer.strip()
 
+
             if data.strip() != "none":
 
                 new_info = {}
+
 
                 for item in data.split("|"):
 
                     if "=" in item:
 
-                        k, v = item.split(
+                        key, value = item.split(
                             "=",
                             1
                         )
 
-                        new_info[k.strip()] = v.strip()
+                        key = key.strip()
+                        value = value.strip()
+
+
+                        if key and value:
+
+                            new_info[key] = value
+
 
 
                 if new_info:
+
+                    memory_update = {}
+
+
+                    for key, value in new_info.items():
+
+                        memory_update[
+                            f"memory.{key}"
+                        ] = value
+
+
 
                     users_db.update_one(
                         {
                             "user_id": user_id
                         },
                         {
-                            "$set": {
-                                f"memory.{k}": v
-                                for k, v in new_info.items()
-                            }
+                            "$set": memory_update
                         },
                         upsert=True
                     )
 
+
+
+        # Convert normal emoji to placeholders
 
         for emoji, placeholder in NORMAL_TO_PLACEHOLDER.items():
 
@@ -446,12 +470,17 @@ If nothing new:
         return reply
 
 
+
     except Exception as e:
 
         error = str(e).lower()
 
 
-        if "429" in error or "rate limit" in error:
+        if (
+            "429" in error
+            or
+            "rate limit" in error
+        ):
 
             return (
                 "Sorryyy mai thodi busy hu :melt: "
@@ -459,7 +488,10 @@ If nothing new:
             )
 
 
-        print(e)
+        import traceback
+
+        traceback.print_exc()
+
 
         return (
             "Aree kuch gadbad ho gyi :cry: "
@@ -715,17 +747,21 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
 
-        # Get bot info
         me = await context.bot.get_me()
 
         text = message.text.lower().strip()
 
 
         # ==========================
-        # CHAT ENABLE CHECK
+        # CHECK CHAT MODE
         # ==========================
 
-        if update.effective_chat.type == ChatType.PRIVATE:
+        is_private = (
+            update.effective_chat.type == ChatType.PRIVATE
+        )
+
+
+        if is_private:
 
             allowed = True
 
@@ -736,6 +772,7 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "chat_id": update.effective_chat.id
                 }
             )
+
 
             enabled = (
                 data.get("enabled", False)
@@ -748,28 +785,29 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
 
-            mentioned = (
+            allowed = (
                 f"@{me.username.lower()}" in text
             )
 
 
-            allowed = mentioned
-
 
         # ==========================
-        # REPLY CHECK
+        # REPLY TO BOT CHECK
         # ==========================
 
         replied = False
 
+
         if message.reply_to_message:
 
-            if (
+            replied_user = (
                 message.reply_to_message.from_user
-                and
-                message.reply_to_message.from_user.id == me.id
-            ):
-                replied = True
+            )
+
+            if replied_user:
+
+                if replied_user.id == me.id:
+                    replied = True
 
 
 
@@ -777,18 +815,23 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # NAME CALL CHECK
         # ==========================
 
-        called_name = any(
-            word in text
-            for word in [
-                "aaru",
-                "aru"
-            ]
-        )
+       called_name = any(
+        word in text.split()
+        for word in [
+            "aaru",
+            "aru",
+            "aaru!",
+            "aru!"
+        ]
+    )
 
 
 
-        # Groups only
-        if update.effective_chat.type != ChatType.PRIVATE:
+        # ==========================
+        # GROUP FILTER
+        # ==========================
+
+        if not is_private:
 
             if not (
                 allowed
@@ -799,7 +842,13 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
-        user_id = update.effective_user.id
+        user = update.effective_user
+
+        if not user:
+            return
+
+
+        user_id = user.id
 
         user_message = message.text
 
@@ -810,42 +859,69 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ==========================
 
         users_db.update_one(
+
             {
                 "user_id": user_id
             },
+
             {
+
                 "$set": {
+
                     "first_name":
-                        update.effective_user.first_name,
+                        user.first_name,
 
                     "username":
-                        update.effective_user.username
+                        user.username
+
                 },
+
 
                 "$setOnInsert": {
-                    "user_id": user_id,
-                    "memory": {}
+
+                    "user_id":
+                        user_id,
+
+                    "memory":
+                        {}
+
                 },
 
+
                 "$push": {
+
                     "history": {
+
                         "$each": [
+
                             {
-                                "role": "user",
-                                "content": user_message
+
+                                "role":
+                                    "user",
+
+                                "content":
+                                    user_message
+
                             }
+
                         ],
-                        "$slice": -20
+
+                        "$slice":
+                            -20
+
                     }
+
                 }
+
             },
+
             upsert=True
         )
 
 
 
         # ==========================
-        # AI RESPONSE
+        # AI CALL
         # ==========================
 
         reply = await ai_chat(
@@ -860,11 +936,8 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
         # ==========================
-        # TYPING SIMULATION
+        # TYPING EFFECT
         # ==========================
-
-        await asyncio.sleep(0.5)
-
 
         await context.bot.send_chat_action(
             chat_id=message.chat_id,
@@ -888,32 +961,51 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
         # ==========================
-        # SAVE AI MESSAGE
+        # SAVE AI RESPONSE
         # ==========================
 
         users_db.update_one(
+
             {
-                "user_id": user_id
+                "user_id":
+                    user_id
             },
+
             {
+
                 "$push": {
+
                     "history": {
+
                         "$each": [
+
                             {
-                                "role": "assistant",
-                                "content": reply
+
+                                "role":
+                                    "assistant",
+
+                                "content":
+                                    reply
+
                             }
+
                         ],
-                        "$slice": -20
+
+                        "$slice":
+                            -20
+
                     }
+
                 }
+
             }
+
         )
 
 
 
         # ==========================
-        # CUSTOM EMOJIS
+        # PREMIUM EMOJI CONVERT
         # ==========================
 
         final_text, entities = convert_premium_emojis(
@@ -922,25 +1014,35 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
         await message.reply_text(
+
             text=final_text,
+
             entities=entities,
-            reply_to_message_id=message.message_id
+
+            reply_to_message_id=
+                message.message_id
+
         )
 
 
 
     except Exception as e:
 
-        print(
-            "AI MESSAGE ERROR:",
-            e
-        )
+        import traceback
+
+        traceback.print_exc()
 
 
-        await message.reply_text(
-            "Aree kuch gadbad ho gyi :cry:\n"
-            "Thodi der baad try kro :sad:"
-        )
+        try:
+
+            await message.reply_text(
+                "Aree kuch gadbad ho gyi :cry:\n"
+                "Thodi der rukooo :sad:"
+            )
+
+        except:
+
+            pass
 
 import random
 
