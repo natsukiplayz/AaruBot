@@ -24,6 +24,8 @@ from telegram.ext import (
     filters,
 )
 
+from telegram import MessageEntity
+
 from flask import Flask
 import threading
 
@@ -230,6 +232,23 @@ async def font(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(result)
 
+PREMIUM_EMOJIS = {
+    ":heart:": "6271407384720051182",
+    ":laugh:": "6064341698505349289",
+    ":eyes:": "6109403885489623596",
+    ":eyes2:": "6158981960002704763",
+    ":angry:": "6334667726094599941",
+    ":angry2:": "6318855971498105536",
+    ":yawn:": "5370562295309017355",
+    ":melt:": "5470082691921619031",
+    ":unamused:": "6334649794606139137",
+    ":expressionless:": "6161183487224193623",
+    ":cry:": "6334754651937703379",
+    ":fear:": "6228534372631318607",
+    ":cold:": "6334323261127526515",
+    ":shock:": "6334547209312274007",
+}
+
 API_KEY = os.getenv("API_KEY")
 
 client = Mistral(api_key=API_KEY)
@@ -321,6 +340,26 @@ CUSTOM EMOJI:
 - If custom emojis are provided by the system, prefer using them.
 - Do not mention emoji systems.
 
+Use these placeholders whenever you want a premium emoji.
+
+:heart:
+:laugh:
+:eyes:
+:angry:
+:yawn:
+:melt:
+:unamused:
+:expressionless:
+:cry:
+:fear:
+:cold:
+:shock:
+
+Example:
+Hiiiiii :heart:
+Kya kr rhe ho?? :eyes:
+Acha ji :laugh:
+
 GENERAL:
 - Keep replies short to medium.
 - Talk like a normal Hinglish friend.
@@ -345,6 +384,27 @@ GENERAL:
 
 
     return response.choices[0].message.content
+
+def convert_premium_emojis(text):
+    entities = []
+
+    for placeholder, emoji_id in PREMIUM_EMOJIS.items():
+        while placeholder in text:
+            offset = text.index(placeholder)
+
+            # Replace placeholder with a single emoji character
+            text = text.replace(placeholder, "😀", 1)
+
+            entities.append(
+                MessageEntity(
+                    type="custom_emoji",
+                    offset=offset,
+                    length=2,
+                    custom_emoji_id=emoji_id,
+                )
+            )
+
+    return text, entities
 
 #=====add costom emoji===
 async def addpack(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -472,18 +532,29 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         me = await context.bot.get_me()
 
-        mentioned = (
-            message.text
-            and f"@{me.username.lower()}" in message.text.lower()
-        )
+        text = message.text.lower().strip()
 
-        replied = (
-            message.reply_to_message
-            and message.reply_to_message.from_user.id == me.id
-        )
+        mentioned = f"@{me.username.lower()}" in text
 
-        if not (mentioned or replied):
-            return
+    replied = (
+        message.reply_to_message
+        and message.reply_to_message.from_user.id == me.id
+    )
+
+    called_name = any(
+        word in text
+        for word in [
+            "aaru",
+            "aru",
+            "aaru!",
+            "aru!",
+            "aaru?",
+            "aru?"
+        ]
+    )
+
+    if not (mentioned or replied or called_name):
+        return
 
     try:
 
@@ -512,7 +583,12 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_message
         )
 
-        await message.reply_text(reply)
+text, entities = convert_premium_emojis(reply)
+
+await message.reply_text(
+    text=text,
+    entities=entities
+)
 
     except Exception as e:
         print(e)
