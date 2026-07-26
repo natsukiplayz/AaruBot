@@ -319,22 +319,32 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==========================
 
 def main():
+
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("f", font))
+    app.add_handler(CommandHandler("chat", chat))
 
-app.add_handler(CommandHandler("chat", chat))
-app.add_handler(
-    MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        ai_message
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            ai_message
+        )
     )
-)
+
+    PORT = int(os.environ.get("PORT", 10000))
+    RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
 
     print("Aaru Bot is running...")
 
-    app.run_polling()
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        webhook_url=f"{RENDER_URL}/{BOT_TOKEN}",
+        secret_token=BOT_TOKEN
+    )
+
 
 if __name__ == "__main__":
     main()
