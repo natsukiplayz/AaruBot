@@ -498,10 +498,7 @@ async def main():
     app.add_handler(CommandHandler("f", font))
     app.add_handler(CommandHandler("chat", chat))
     app.add_handler(CommandHandler("ludo", ludo))
-
-app.add_handler(
-    CommandHandler("addpack", addpack)
-)
+    app.add_handler(CommandHandler)("addpack", addpack))
 
     app.add_handler(
         MessageHandler(
