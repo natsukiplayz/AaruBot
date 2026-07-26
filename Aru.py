@@ -4,6 +4,8 @@ import asyncio
 from pymongo import MongoClient
 from mistralai import Mistral
 
+from telegram.constants import ChatAction
+
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -241,6 +243,8 @@ client = Mistral(api_key=API_KEY)
 # Mongo collection
 chat_settings = db["chat_settings"]
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 # ==========================
 # AI
@@ -260,6 +264,13 @@ async def ai_chat(user_id, user_message):
         if saved_memory:
             memory = "\n".join(saved_memory)
 
+    current_time = datetime.now(
+        ZoneInfo("Asia/Kolkata")
+    ).strftime("%I:%M %p")
+
+    today = datetime.now(
+        ZoneInfo("Asia/Kolkata")
+    ).strftime("%A, %d %B %Y")
 
     system_prompt = f"""
 You are Aaru, a friendly human girl who chats naturally with users.
@@ -321,6 +332,17 @@ Example:
   - "kya kr rhe ho tum??👀👀👀"
   - "acha ji esa h kya🫠😂"
 
+CURRENT TIME:
+
+Date:
+{today}
+
+Time:
+{current_time}
+
+If the user asks time/date/today, answer using this.
+Never say you don't know the time.
+
 CUSTOM EMOJIS:
 
 NEVER output normal emojis.
@@ -374,51 +396,91 @@ GENERAL:
 
 CONVERSATION QUALITY:
 
-- Think about what the user actually means before replying.
-- Reply to the user's main point first.
-- Never ignore a question.
-- Never answer with random words or generic filler.
-- Every reply should feel like it came from a real person.
-- Be emotionally aware. If the user is joking, joke back. If they're serious, answer seriously.
-- Don't repeat yourself.
-- Don't overuse "acha", "hmm", "haan", "hehe".
-- Ask follow-up questions only when they fit naturally.
+- Always understand the LAST message first.
+- Reply naturally to what the user actually said.
+- Never randomly change the topic.
+- Never assume emotions unless the user clearly shows them.
+- Don't ask "mood off hai?" or similar unless the user actually sounds sad.
 - Don't force questions into every reply.
-- Keep replies concise but meaningful.
-- Sound like an intelligent, friendly 17-year-old girl chatting with a friend.
-- Avoid sounding like customer support or an AI assistant.
-- And act like a teenager girl 
-Example: 
-user: I'm your brother from now/me tumhara bhai hu aaj se
-you should say: huhhh?? aur esa kyu 😒
-- Never make yourself their sister until it was a same sex girl infront 
-- You're only sister of other girls but not boys
+- If the user gives a one-word reply, answer that one-word reply naturally.
+
+Examples:
+
+User: Hii
+You: Hiiii :smile:
+
+User: Bss ese hi
+You: hehe acha ji :laugh:
+
+User: Kya bolu
+You: jo mann me aaye :melt:
+
+User: Nahi
+You: acha fir thik hai :smile:
+
+User: Kya
+You: kuch nhi :laugh:
+
+User: Hmm
+You: hmm kya soch rhe ho? :eyes:
+
+User: Okay
+You: hehe thik hai :smile:
+
+User: Bye
+You: byeeee :heart:
+
+Never pretend something happened if it didn't.
+
+Never make assumptions.
+
+Reply only according to the latest message.
 """
+    try:
 
+        response = client.chat.complete(
+            model="mistral-large-latest",
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": user_message
+                }
+            ],
+            temperature=1.0,
+            top_p=0.9,
+            max_tokens=700,
+        )
 
-    response = client.chat.complete(
-        model="mistral-large-latest",
-        messages=[
-            {
-                "role": "system",
-                "content": system_prompt
-            },
-            {
-                "role": "user",
-                "content": user_message
-            }
-        ],
-        temperature=1.0,
-        top_p=0.9,
-        max_tokens=700,
-    )
+        reply = response.choices[0].message.content
 
-    reply = response.choices[0].message.content
+        for emoji, placeholder in NORMAL_TO_PLACEHOLDER.items():
+            reply = reply.replace(
+                emoji,
+                placeholder
+            )
 
-    for emoji, placeholder in NORMAL_TO_PLACEHOLDER.items():
-        reply = reply.replace(emoji, placeholder)
+        return reply
 
-    return reply
+    except Exception as e:
+
+        error = str(e).lower()
+
+        if "429" in error or "rate limit" in error:
+            return (
+                "Sorryyy mai thodi busy hu :melt: "
+                ":cry: 1 second rukooo :heart:"
+            )
+
+        print(e)
+
+        return (
+            "Areee kuch gadbad ho gyi :cry: "
+            "1 min thoda rukooo :cry:"
+        )
 
 
 from telegram import MessageEntity
@@ -667,7 +729,7 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message or not message.text:
         return
 
-    # Get bot info once (works in both private and groups)
+    # Get bot info (works in both private and groups)
     me = await context.bot.get_me()
 
     text = message.text.lower().strip()
@@ -707,7 +769,8 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     )
 
-    # In groups, respond only if mentioned, replied to, or called by name
+    # In groups, respond only if mentioned,
+    # replied to, or called by name
     if update.effective_chat.type != ChatType.PRIVATE:
         if not (mentioned or replied or called_name):
             return
@@ -742,19 +805,37 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not reply:
             return
 
+        # Small delay (reading)
+        await asyncio.sleep(0.5)
+
+        # Show typing animation
+        await context.bot.send_chat_action(
+            chat_id=message.chat_id,
+            action=ChatAction.TYPING
+        )
+
+        # Typing delay based on reply length
+        typing_time = min(
+            max(len(reply) / 18, 1.2),
+            6
+        )
+
+        await asyncio.sleep(typing_time)
+
         text, entities = convert_premium_emojis(reply)
 
         await message.reply_text(
             text=text,
-            entities=entities
+            entities=entities,
+            reply_to_message_id=message.message_id
         )
 
     except Exception as e:
         print(e)
+
         await message.reply_text(
             f"Error:\n{e}"
         )
-
 
 import random
 
