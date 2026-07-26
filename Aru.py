@@ -16,7 +16,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI") 
 
 OD1 = 8752939430
-OD2 = 987654321
+OD2 = 6462525689
 
 SUPPORT_LINK = "https://t.me/AaruSupport"
 UPDATES_LINK = "https://t.me/IgAaruu"
