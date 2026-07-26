@@ -8,4 +8,4 @@ def run_web():
 Thread(target=run_web, daemon=True).start()
 
 # Start Telegram bot
-subprocess.run(["python", "aru.py"])
+subprocess.run(["python", "Aru.py"])
