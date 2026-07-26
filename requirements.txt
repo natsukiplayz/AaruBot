@@ -1,4 +1,4 @@
-mistralai>=1.0.0
 python-telegram-bot==22.3
-pymongo
-dnspython
+pymongo==4.17.0
+dnspython==2.8.0
+mistralai==1.9.10
