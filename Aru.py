@@ -24,7 +24,7 @@ from telegram.ext import (
     filters,
 )
 
-from telegram import MessageEntity
+from telegram.constants import MessageEntityType
 
 from flask import Flask
 import threading
@@ -418,46 +418,37 @@ def convert_premium_emojis(text):
     return text, entities
 
 async def eid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
 
-    message = update.message
+    target = msg.reply_to_message or msg
 
-    # Reply to a sticker
-    if message.reply_to_message and message.reply_to_message.sticker:
-
-        sticker = message.reply_to_message.sticker
-
-        if sticker.custom_emoji_id:
-            await message.reply_text(
-                f'":???:": ("🙂", "{sticker.custom_emoji_id}")'
-            )
-        else:
-            await message.reply_text(
-                "This sticker doesn't have a custom emoji ID."
-            )
-        return
-
-    # Current message contains a custom emoji
-    if message.entities:
-
-        for entity in message.entities:
-
-            if entity.type == MessageEntityType.CUSTOM_EMOJI:
-
-                emoji = message.text[
+    if target.entities:
+        for entity in target.entities:
+            if entity.type == "custom_emoji":
+                emoji = target.text[
                     entity.offset:
                     entity.offset + entity.length
                 ]
 
-                await message.reply_text(
-                    f'":???:": ("{emoji}", "{entity.custom_emoji_id}")'
+                await msg.reply_text(
+                    f'"::?:": ("{emoji}", "{entity.custom_emoji_id}")'
                 )
                 return
 
-    await message.reply_text(
-        "Usage:\n"
-        "/eid 😱\n"
-        "or send /eid followed by a Premium Emoji.\n"
-        "You can also reply to a custom emoji sticker."
+    if target.sticker:
+        await msg.reply_text(
+            f"Sticker File ID:\n{target.sticker.file_id}"
+        )
+        return
+
+    if target.animation:
+        await msg.reply_text(
+            f"GIF File ID:\n{target.animation.file_id}"
+        )
+        return
+
+    await msg.reply_text(
+        "Send or reply to a custom emoji, sticker or GIF."
     )
 
 #=====add costom emoji===
