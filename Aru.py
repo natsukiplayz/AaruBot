@@ -371,6 +371,7 @@ GENERAL:
 
 from telegram import MessageEntity
 
+
 EMOJI_MAP = {
     ":heart:": ("❤️", "6271407384720051182"),
     ":heart2:": ("❤️", "6269340616392445825"),
@@ -387,6 +388,7 @@ EMOJI_MAP = {
 
     ":yawn:": ("🥱", "5370562295309017355"),
     ":melt:": ("🫠", "5470082691921619031"),
+
     ":unamused:": ("😒", "6334649794606139137"),
     ":expressionless:": ("😑", "6161183487224193623"),
 
@@ -399,39 +401,54 @@ EMOJI_MAP = {
 
     ":clap:": ("👏", "6064284639864822411"),
     ":dance:": ("💃", "6271515257118658341"),
+
     ":dotted:": ("🫥", "6231081125029088539"),
     ":sad:": ("😔", "6231245905744367218"),
     ":cool:": ("😎", "6066879272558008581"),
 }
 
-def utf16_len(s):
-    return len(s.encode("utf-16-le")) // 2
+
+def utf16_len(text):
+    return len(text.encode("utf-16-le")) // 2
+
 
 def convert_premium_emojis(text):
+
     entities = []
 
-    for placeholder, (emoji, emoji_id) in EMOJI_MAP.items():
+    result = ""
+    i = 0
 
-        while placeholder in text:
+    while i < len(text):
 
-            pos = text.index(placeholder)
+        matched = False
 
-            before = text[:pos]
+        for placeholder, (emoji, emoji_id) in EMOJI_MAP.items():
 
-            offset = utf16_len(before)
+            if text.startswith(placeholder, i):
 
-            text = text.replace(placeholder, emoji, 1)
+                offset = utf16_len(result)
 
-            entities.append(
-                MessageEntity(
-                    type=MessageEntity.CUSTOM_EMOJI,
-                    offset=offset,
-                    length=utf16_len(emoji),
-                    custom_emoji_id=emoji_id,
+                result += emoji
+
+                entities.append(
+                    MessageEntity(
+                        type=MessageEntity.CUSTOM_EMOJI,
+                        offset=offset,
+                        length=utf16_len(emoji),
+                        custom_emoji_id=emoji_id,
+                    )
                 )
-            )
 
-    return text, entities
+                i += len(placeholder)
+                matched = True
+                break
+
+        if not matched:
+            result += text[i]
+            i += 1
+
+    return result, entities
 
 async def eid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
