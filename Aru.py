@@ -130,7 +130,7 @@ async def ludo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
             InlineKeyboardButton(
-                "🎮 Enter Ludo",
+                "🎮 𝐄𝐧𝐭𝐞𝐫 𝐋𝐮𝐝𝐨",
                 web_app=WebAppInfo(
                     url="https://aarubot.onrender.com"
                 )
@@ -138,16 +138,26 @@ async def ludo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
 
+    text = """
+🎲 <b>𝐀𝐚𝐫𝐮 𝐋𝐮𝐝𝐨 𝐆𝐚𝐦𝐞</b>
+
+🎮 <b>𝐏𝐥𝐚𝐲 𝐋𝐮𝐝𝐨 𝐰𝐢𝐭𝐡 𝐨𝐭𝐡𝐞𝐫 𝐩𝐥𝐚𝐲𝐞𝐫𝐬 𝐚𝐧𝐝 𝐞𝐚𝐫𝐧 𝐜𝐨𝐢𝐧𝐬!</b>
+
+🏆 𝐖𝐢𝐧 𝐌𝐚𝐭𝐜𝐡𝐞𝐬
+💰 𝐄𝐚𝐫𝐧 𝐑𝐞𝐰𝐚𝐫𝐝𝐬
+🎮 𝐇𝐚𝐯𝐞 𝐅𝐮𝐧
+"""
+
+    if update.effective_chat.type != ChatType.PRIVATE:
+        await update.message.reply_text(
+            "❌ <b>𝐓𝐡𝐢𝐬 𝐠𝐚𝐦𝐞 𝐜𝐚𝐧 𝐨𝐧𝐥𝐲 𝐛𝐞 𝐨𝐩𝐞𝐧𝐞𝐝 𝐢𝐧 𝐩𝐫𝐢𝐯𝐚𝐭𝐞 𝐜𝐡𝐚𝐭.</b>\n\n"
+            "𝐏𝐥𝐞𝐚𝐬𝐞 𝐬𝐭𝐚𝐫𝐭 𝐭𝐡𝐞 𝐛𝐨𝐭 𝐢𝐧 𝐏𝐌 𝐚𝐧𝐝 𝐭𝐫𝐲 𝐚𝐠𝐚𝐢𝐧.",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
     await update.message.reply_text(
-        """
-🎲 <b>Aaru Ludo Game</b>
-
-Play Ludo with other players and earn coins!
-
-🏆 Win matches
-💰 Earn rewards
-🎮 Have fun
-        """,
+        text,
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -281,7 +291,17 @@ INSULT HANDLING:
   - Do not insult heavily back.
 
 Example:
-"Acha? Aise baat mat karo yaar 😐"
+"Acha? aap toh cool bn gye ese bolke🤣🤣"
+
+NAME RESPONSE:
+- If the user simply says "Aaru", "Aaru!", "Aru", "Aru!", "aaru", "aru", or only calls your name without asking anything else, reply in a cheerful and excited way.
+- Examples:
+  - "Hiiiiiii!! 💜"
+  - "Hiiiiiii! Kya hua?👀👀"
+  - "Yesss?🫠"
+  - "Bolooo!🪽"
+- Do not give a long response if the user only calls your name.
+- If the user says your name and then asks a question, first greet them warmly and then answer the question naturally.
 
 MEMORY:
 User information saved from MongoDB:
@@ -290,6 +310,12 @@ User information saved from MongoDB:
 
 Use this information naturally.
 Never say you have memory or a database.
+
+CHATTING STYLE:
+- Always talk in smaller style 
+Example:
+  - "kya kr rhe ho tum??👀👀👀"
+  - "acha ji esa h kya🫠😂"
 
 CUSTOM EMOJI:
 - If custom emojis are provided by the system, prefer using them.
@@ -459,12 +485,10 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not (mentioned or replied):
             return
 
-    try:
-
+try:
     user_id = update.effective_user.id
     user_message = message.text
 
-    # Save/update user information
     users_db.update_one(
         {"user_id": user_id},
         {
@@ -482,7 +506,6 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         upsert=True
     )
 
-    # Generate AI reply
     reply = await ai_chat(
         user_id,
         user_message
@@ -491,12 +514,8 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await message.reply_text(reply)
 
 except Exception as e:
-
     print(e)
-
-    await message.reply_text(
-        f"Error:\n{e}"
-    )
+    await message.reply_text(f"Error:\n{e}")
 
 import random
 
