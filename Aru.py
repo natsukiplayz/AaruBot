@@ -194,7 +194,7 @@ YOUR PROMPT HERE
             }
         ],
         temperature=0.8,
-7        max_tokens=500
+        max_tokens=500
     )
 
     return response.choices[0].message.content
