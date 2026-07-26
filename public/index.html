@@ -83,6 +83,83 @@
   #logo .mark svg{width:16px; height:16px;}
   #logo .word-a{ color:var(--blue); text-shadow:0 0 10px rgba(58,160,255,0.85), 0 0 22px rgba(58,160,255,0.35);}
   #logo .word-l{ color:var(--orange); text-shadow:0 0 10px rgba(255,151,54,0.85), 0 0 22px rgba(255,151,54,0.35);}
+
+  /* ---------- Top-right persistent bar: profile + music ---------- */
+  #topRightBar{
+    position:fixed; top:14px; right:16px; z-index:500;
+    display:flex; align-items:center; gap:8px;
+  }
+  #musicToggle, #profileBtn{
+    display:flex; align-items:center; gap:6px;
+    background:rgba(255,255,255,0.06);
+    border:1px solid rgba(255,255,255,0.1);
+    border-radius:20px; cursor:pointer; user-select:none;
+    transition:transform .15s;
+  }
+  #musicToggle:active, #profileBtn:active{ transform:scale(0.92); }
+  #musicToggle{ width:34px; height:34px; justify-content:center; font-size:15px; }
+  #profileBtn{ padding:5px 12px 5px 5px; font-size:13px; font-weight:800; }
+  #profileAvatar{
+    width:26px; height:26px; border-radius:50%;
+    background:linear-gradient(135deg, var(--blue), var(--orange));
+    display:flex; align-items:center; justify-content:center; font-size:15px;
+  }
+  #profileCoins{ color:var(--gold); }
+  #profileCoins::before{ content:"🪙 "; }
+
+  /* ---------- Profile / Shop modal ---------- */
+  #profileModal{
+    position:fixed; inset:0; z-index:970;
+    background:rgba(4,10,8,0.82); backdrop-filter:blur(5px);
+    display:none; align-items:center; justify-content:center; padding:16px;
+  }
+  #profileModal.active{ display:flex; }
+  .profile-card{
+    width:100%; max-width:440px; max-height:86vh; overflow-y:auto;
+    background:linear-gradient(180deg,#1a2321,#0e1512);
+    border:1px solid rgba(255,255,255,0.1); border-radius:24px;
+    padding:24px 22px; animation:rise .35s ease both;
+  }
+  .profile-head{ display:flex; align-items:center; gap:14px; margin-bottom:6px; }
+  .profile-head .big-avatar{
+    width:58px; height:58px; border-radius:50%; font-size:28px;
+    display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(135deg, var(--blue), var(--orange));
+    box-shadow:0 0 18px rgba(58,160,255,0.3);
+  }
+  .profile-head .pn{ font-weight:800; font-size:18px; }
+  .profile-head .pc{ color:var(--gold); font-size:13px; font-weight:700; margin-top:2px; }
+  .shop-section-title{ font-size:13px; text-transform:uppercase; letter-spacing:0.6px; color:var(--dim); margin:20px 0 10px; }
+  .shop-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .shop-item{
+    aspect-ratio:1; border-radius:14px; cursor:pointer; position:relative;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:rgba(255,255,255,0.04); border:2px solid transparent;
+    font-size:22px; transition:all .15s;
+  }
+  .shop-item.owned{ border-color:rgba(255,255,255,0.15); }
+  .shop-item.selected{ border-color:var(--gold); box-shadow:0 0 14px rgba(232,193,90,0.35); }
+  .shop-item .price{ font-size:9.5px; color:var(--gold); margin-top:2px; font-weight:700; }
+  .shop-item .lock{ position:absolute; top:4px; right:6px; font-size:10px; opacity:0.7; }
+  .shop-token-preview{
+    width:26px; height:26px; border-radius:50%; background:var(--red-tok);
+    box-shadow:0 2px 5px rgba(0,0,0,0.4);
+  }
+  .shop-item[data-skin="neon"] .shop-token-preview{ box-shadow:0 0 10px 3px #ff5470; }
+  .shop-item[data-skin="candy"] .shop-token-preview{ filter:saturate(1.7) brightness(1.2); }
+  .shop-item[data-skin="gold"] .shop-token-preview{ filter:sepia(0.5) saturate(2) brightness(1.1); }
+  .coin-toast{
+    position:fixed; top:70px; left:50%; transform:translateX(-50%);
+    background:rgba(232,193,90,0.15); border:1px solid rgba(232,193,90,0.4);
+    color:var(--gold); padding:8px 16px; border-radius:14px; font-weight:700; font-size:13px;
+    z-index:990; opacity:0; pointer-events:none; transition:opacity .3s, transform .3s;
+  }
+  .coin-toast.show{ opacity:1; transform:translateX(-50%) translateY(6px); }
+
+  /* token skin cosmetic effects (applied to the local player's own color) */
+  .token.skin-neon{ box-shadow:0 0 11px 3px var(--glow-c), 0 2px 6px rgba(0,0,0,0.5); }
+  .token.skin-candy{ filter:saturate(1.6) brightness(1.12); }
+  .token.skin-gold{ filter:sepia(0.4) saturate(1.9) brightness(1.1); }
   #logo, h1.title, .btn, .mode-btn .mt, .turn-banner, .win-title, .down-title, .room-code, #dice{ font-family:'Baloo 2', 'Nunito', sans-serif; }
 
   .screen{
@@ -342,49 +419,55 @@
     position:relative;
     width:min(96vw, 480px);
     aspect-ratio:1;
-    border-radius:14px;
+    border-radius:16px;
     padding:10px;
-    background:linear-gradient(160deg,#123a30,#0c2b24);
-    box-shadow:0 20px 50px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.06);
+    background:linear-gradient(160deg,#2a4a3e,#173a2f);
+    box-shadow:0 20px 50px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.08);
   }
   #board{
     width:100%; height:100%;
     display:grid;
     grid-template-columns:repeat(15,1fr);
     grid-template-rows:repeat(15,1fr);
-    border-radius:8px;
+    border-radius:10px;
     overflow:hidden;
-    background:#0a221c;
-    box-shadow:inset 0 0 0 2px rgba(255,255,255,0.05);
+    background:#fbf6e9;
+    box-shadow:inset 0 0 0 2px rgba(0,0,0,0.08);
   }
-  .cell{ position:relative; background:#123028; }
-  .cell.path{ background:#e9f3ef0d; box-shadow:inset 0 0 0 1px rgba(255,255,255,0.05); }
-  .cell.safe{ background:repeating-linear-gradient(45deg, rgba(232,193,90,0.12), rgba(232,193,90,0.12) 4px, transparent 4px, transparent 8px); }
-  .cell.yard-red{ background:radial-gradient(circle, rgba(255,84,112,0.14), transparent 70%); }
-  .cell.yard-green{ background:radial-gradient(circle, rgba(61,220,132,0.14), transparent 70%); }
-  .cell.yard-yellow{ background:radial-gradient(circle, rgba(255,217,61,0.14), transparent 70%); }
-  .cell.yard-blue{ background:radial-gradient(circle, rgba(77,195,255,0.14), transparent 70%); }
-  .cell.home-red{ background:rgba(255,84,112,0.28); }
-  .cell.home-green{ background:rgba(61,220,132,0.28); }
-  .cell.home-yellow{ background:rgba(255,217,61,0.28); }
-  .cell.home-blue{ background:rgba(77,195,255,0.28); }
-  .cell.center{ background:linear-gradient(135deg,#e8c15a33,#e8c15a11); }
+  .cell{ position:relative; background:#fbf6e9; }
+  .cell.path{ background:#ffffff; box-shadow:inset 0 0 0 1px rgba(0,0,0,0.06); }
+  .cell.safe{ background:#fff8e0; }
+  .cell.safe::after{
+    content:"★"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-size:70%; color:#e8c15a; opacity:0.85;
+  }
+  .cell.yard-red{ background:#ff5470; }
+  .cell.yard-green{ background:#3ddc84; }
+  .cell.yard-yellow{ background:#ffd93d; }
+  .cell.yard-blue{ background:#4dc3ff; }
+  .cell.home-red{ background:#ff8095; }
+  .cell.home-green{ background:#7de8a8; }
+  .cell.home-yellow{ background:#ffe480; }
+  .cell.home-blue{ background:#8bd6ff; }
+  .cell.center{ background:conic-gradient(#ff5470 0deg 90deg, #3ddc84 90deg 180deg, #4dc3ff 180deg 270deg, #ffd93d 270deg 360deg); }
 
   .yard-box{
     position:absolute;
-    border-radius:14px;
+    border-radius:20px;
     display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr;
-    gap:6%; padding:10%;
+    gap:8%; padding:11%;
   }
-  .yard-box.red{ top:2%; left:2%; width:35.5%; height:35.5%; background:radial-gradient(circle at 50% 50%, rgba(255,84,112,0.16), rgba(255,84,112,0.05)); border:2px solid rgba(255,84,112,0.35); }
-  .yard-box.green{ top:2%; right:2%; width:35.5%; height:35.5%; background:radial-gradient(circle at 50% 50%, rgba(61,220,132,0.16), rgba(61,220,132,0.05)); border:2px solid rgba(61,220,132,0.35); }
-  .yard-box.yellow{ bottom:2%; right:2%; width:35.5%; height:35.5%; background:radial-gradient(circle at 50% 50%, rgba(255,217,61,0.16), rgba(255,217,61,0.05)); border:2px solid rgba(255,217,61,0.35); }
-  .yard-box.blue{ bottom:2%; left:2%; width:35.5%; height:35.5%; background:radial-gradient(circle at 50% 50%, rgba(77,195,255,0.16), rgba(77,195,255,0.05)); border:2px solid rgba(77,195,255,0.35); }
+  .yard-box.red{ top:2%; left:2%; width:35.5%; height:35.5%; background:#ff5470; box-shadow:inset 0 0 0 6px #fff2f4; }
+  .yard-box.green{ top:2%; right:2%; width:35.5%; height:35.5%; background:#3ddc84; box-shadow:inset 0 0 0 6px #eefff5; }
+  .yard-box.yellow{ bottom:2%; right:2%; width:35.5%; height:35.5%; background:#ffd93d; box-shadow:inset 0 0 0 6px #fffbea; }
+  .yard-box.blue{ bottom:2%; left:2%; width:35.5%; height:35.5%; background:#4dc3ff; box-shadow:inset 0 0 0 6px #eef8ff; }
   .yard-slot{
     border-radius:50%;
-    background:rgba(0,0,0,0.18);
+    background:rgba(255,255,255,0.55);
+    box-shadow:inset 0 2px 4px rgba(0,0,0,0.15);
     display:flex; align-items:center; justify-content:center;
   }
+
 
   .token{
     position:absolute;
@@ -497,6 +580,32 @@
 <div id="logo">
   <div class="mark"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3.4" fill="#fff"/><circle cx="6" cy="6" r="1.8" fill="#0c1a17"/><circle cx="18" cy="6" r="1.8" fill="#0c1a17"/><circle cx="6" cy="18" r="1.8" fill="#0c1a17"/><circle cx="18" cy="18" r="1.8" fill="#0c1a17"/></svg></div>
   <span><span class="word-a">Aaru</span><span class="word-l">Ludo</span></span>
+</div>
+
+<div id="topRightBar">
+  <div id="musicToggle">🎵</div>
+  <div id="profileBtn">
+    <span id="profileAvatar">🙂</span>
+    <span id="profileCoins">300</span>
+  </div>
+</div>
+
+<!-- PROFILE / SHOP MODAL -->
+<div id="profileModal">
+  <div class="profile-card">
+    <div class="profile-head">
+      <div class="big-avatar" id="profileBigAvatar">🙂</div>
+      <div>
+        <div class="pn" id="profileNameDisp">Player</div>
+        <div class="pc" id="profileCoinsDisp">🪙 300 coins</div>
+      </div>
+    </div>
+    <div class="shop-section-title">Avatars</div>
+    <div class="shop-grid" id="avatarShop"></div>
+    <div class="shop-section-title">Token Skins</div>
+    <div class="shop-grid" id="skinShop"></div>
+    <button class="btn ghost" id="closeProfileBtn" style="margin-top:20px;">Close</button>
+  </div>
 </div>
 
 <!-- LOGIN SCREEN -->
@@ -693,6 +802,38 @@ const sfx = {
 };
 
 /* ============================================================
+   BACKGROUND MUSIC — procedural loop, no external audio files
+============================================================ */
+let musicOn = true;
+let musicTimer = null;
+const MUSIC_LOOP_SEC = 8;
+function scheduleMusicLoop(){
+  if(!musicOn) return;
+  const c = ac(); if(!c) return;
+  const melody = [
+    {f:523.25,d:0.35,t:0},{f:587.33,d:0.35,t:0.5},{f:659.25,d:0.35,t:1.0},
+    {f:523.25,d:0.35,t:1.5},{f:440.00,d:0.35,t:2.0},{f:523.25,d:0.35,t:2.5},
+    {f:587.33,d:0.35,t:3.0},{f:659.25,d:0.5, t:3.5},
+    {f:440.00,d:0.35,t:4.2},{f:523.25,d:0.35,t:4.7},{f:587.33,d:0.35,t:5.2},
+    {f:659.25,d:0.35,t:5.7},{f:523.25,d:0.35,t:6.2},{f:440.00,d:0.6, t:6.7}
+  ];
+  melody.forEach(n=> tone(n.f, n.d, 'triangle', 0.045, n.t));
+  [0,2,4,6].forEach(t=> tone(130.81, 1.8, 'sine', 0.03, t));
+  musicTimer = setTimeout(scheduleMusicLoop, MUSIC_LOOP_SEC*1000);
+}
+function startMusic(){ if(musicTimer || !musicOn) return; scheduleMusicLoop(); }
+function stopMusic(){ if(musicTimer){ clearTimeout(musicTimer); musicTimer=null; } }
+document.addEventListener('click', function initMusicOnFirstTap(){
+  startMusic();
+  document.removeEventListener('click', initMusicOnFirstTap);
+}, { once:true });
+document.getElementById('musicToggle').addEventListener('click', function(){
+  musicOn = !musicOn;
+  this.textContent = musicOn ? '🎵' : '🔇';
+  if(musicOn) startMusic(); else stopMusic();
+});
+
+/* ============================================================
    BOARD GEOMETRY — verified 56-cell track, 4-fold symmetric
 ============================================================ */
 const TRACK = [[6,1],[6,2],[6,3],[6,4],[6,5],[6,6],[5,6],[4,6],[3,6],[2,6],[1,6],[0,6],[0,7],[0,8],[1,8],[2,8],[3,8],[4,8],[5,8],[6,8],[6,9],[6,10],[6,11],[6,12],[6,13],[6,14],[7,14],[8,14],[8,13],[8,12],[8,11],[8,10],[8,9],[8,8],[9,8],[10,8],[11,8],[12,8],[13,8],[14,8],[14,7],[14,6],[13,6],[12,6],[11,6],[10,6],[9,6],[8,6],[8,5],[8,4],[8,3],[8,2],[8,1],[8,0],[7,0],[6,0]];
@@ -760,7 +901,8 @@ const State = {
   game: null,          // active game state object
   pollTimer: null,
   lastWriteAt: 0,
-  animating: false
+  animating: false,
+  rolling: false
 };
 
 function uid(){
@@ -789,6 +931,14 @@ const nameInput = document.getElementById('nameInput');
 const continueBtn = document.getElementById('continueBtn');
 const loginErr = document.getElementById('loginErr');
 
+function defaultProfile(){
+  return {
+    uid: uid(), coins: 300, avatar: '🙂', skin: 'classic',
+    ownedAvatars: ['🙂','😎','🐱','🐶'], ownedSkins: ['classic']
+  };
+}
+let restoredProfile = null;
+
 function doLogin(){
   sfx.click();
   const name = (nameInput.value||'').trim();
@@ -798,13 +948,12 @@ function doLogin(){
     nameInput.focus();
     return;
   }
-  const profile = { name: name.slice(0,16), uid: uid() };
+  const base = restoredProfile || defaultProfile();
+  const profile = Object.assign({}, base, { name: name.slice(0,16) });
   State.profile = profile;
-  // best-effort personal storage save; never blocks the flow
-  if(isStorageAvailable()){
-    safeSet('profile', JSON.stringify(profile), false);
-  }
+  persistProfile();
   document.getElementById('helloName').textContent = profile.name;
+  refreshProfileBar();
   showScreen('modeScreen');
 }
 continueBtn.addEventListener('click', doLogin);
@@ -831,10 +980,138 @@ try{
   if(v){
     try{
       const p = JSON.parse(v);
-      if(p && p.name) nameInput.value = p.name;
+      if(p && p.name){
+        nameInput.value = p.name;
+        restoredProfile = Object.assign(defaultProfile(), p);
+      }
     }catch(e){}
   }
 })();
+
+function persistProfile(){
+  if(!State.profile) return;
+  if(isStorageAvailable()){
+    safeSet('profile', JSON.stringify(State.profile), false);
+  }
+}
+
+/* ============================================================
+   PROFILE / AVATAR & TOKEN SKIN SHOP
+============================================================ */
+const AVATAR_ITEMS = [
+  {id:'🙂', price:0}, {id:'😎', price:0}, {id:'🐱', price:0}, {id:'🐶', price:0},
+  {id:'🐼', price:120}, {id:'🦁', price:120}, {id:'🐯', price:120}, {id:'🐨', price:120},
+  {id:'👑', price:180}, {id:'🚀', price:200}, {id:'🐉', price:260}, {id:'🦄', price:260}
+];
+const SKIN_ITEMS = [
+  {id:'classic', label:'Classic', price:0},
+  {id:'neon', label:'Neon', price:140},
+  {id:'candy', label:'Candy', price:160},
+  {id:'gold', label:'Gold', price:260}
+];
+
+function refreshProfileBar(){
+  if(!State.profile) return;
+  document.getElementById('profileAvatar').textContent = State.profile.avatar;
+  document.getElementById('profileCoins').textContent = State.profile.coins;
+}
+function showCoinToast(msg){
+  const t = document.createElement('div');
+  t.className = 'coin-toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  requestAnimationFrame(()=> t.classList.add('show'));
+  setTimeout(()=>{ t.classList.remove('show'); setTimeout(()=>t.remove(), 350); }, 1600);
+}
+function awardCoins(amount, reason){
+  if(!State.profile) return;
+  State.profile.coins += amount;
+  persistProfile();
+  refreshProfileBar();
+  showCoinToast('+'+amount+' 🪙 '+reason);
+}
+
+function renderProfileModal(){
+  const p = State.profile;
+  if(!p) return;
+  document.getElementById('profileBigAvatar').textContent = p.avatar;
+  document.getElementById('profileNameDisp').textContent = p.name;
+  document.getElementById('profileCoinsDisp').textContent = '🪙 '+p.coins+' coins';
+
+  const avatarGrid = document.getElementById('avatarShop');
+  avatarGrid.innerHTML = '';
+  AVATAR_ITEMS.forEach(item=>{
+    const owned = p.ownedAvatars.includes(item.id) || item.price===0;
+    const selected = p.avatar===item.id;
+    const div = document.createElement('div');
+    div.className = 'shop-item'+(owned?' owned':'')+(selected?' selected':'');
+    div.innerHTML = `${item.id}${!owned?'<div class="price">🪙'+item.price+'</div>':(selected?'<div class="price">Selected</div>':'<div class="price">Owned</div>')}`;
+    div.addEventListener('click', ()=> buyOrSelectAvatar(item));
+    avatarGrid.appendChild(div);
+  });
+
+  const skinGrid = document.getElementById('skinShop');
+  skinGrid.innerHTML = '';
+  SKIN_ITEMS.forEach(item=>{
+    const owned = p.ownedSkins.includes(item.id) || item.price===0;
+    const selected = p.skin===item.id;
+    const div = document.createElement('div');
+    div.className = 'shop-item'+(owned?' owned':'')+(selected?' selected':'');
+    div.setAttribute('data-skin', item.id);
+    div.innerHTML = `<div class="shop-token-preview"></div><div class="price">${!owned?('🪙'+item.price):(selected?'Selected':item.label)}</div>`;
+    div.addEventListener('click', ()=> buyOrSelectSkin(item));
+    skinGrid.appendChild(div);
+  });
+}
+function buyOrSelectAvatar(item){
+  sfx.click();
+  const p = State.profile;
+  const owned = p.ownedAvatars.includes(item.id) || item.price===0;
+  if(owned){
+    p.avatar = item.id;
+  } else if(p.coins >= item.price){
+    p.coins -= item.price;
+    p.ownedAvatars.push(item.id);
+    p.avatar = item.id;
+    showCoinToast('Unlocked '+item.id+' !');
+  } else {
+    showCoinToast("Not enough coins yet");
+    sfx.error();
+    return;
+  }
+  persistProfile();
+  refreshProfileBar();
+  renderProfileModal();
+}
+function buyOrSelectSkin(item){
+  sfx.click();
+  const p = State.profile;
+  const owned = p.ownedSkins.includes(item.id) || item.price===0;
+  if(owned){
+    p.skin = item.id;
+  } else if(p.coins >= item.price){
+    p.coins -= item.price;
+    p.ownedSkins.push(item.id);
+    p.skin = item.id;
+    showCoinToast('Unlocked '+item.label+' skin!');
+  } else {
+    showCoinToast("Not enough coins yet");
+    sfx.error();
+    return;
+  }
+  persistProfile();
+  refreshProfileBar();
+  renderProfileModal();
+}
+document.getElementById('profileBtn').addEventListener('click', ()=>{
+  sfx.click();
+  renderProfileModal();
+  document.getElementById('profileModal').classList.add('active');
+});
+document.getElementById('closeProfileBtn').addEventListener('click', ()=>{
+  sfx.click();
+  document.getElementById('profileModal').classList.remove('active');
+});
 
 /* ============================================================
    MODE SELECT
@@ -846,20 +1123,29 @@ document.querySelectorAll('.mode-btn').forEach(btn=>{
     State.mode = mode;
     if(mode==='bot'){
       document.getElementById('setupTitle').textContent = 'Play vs Robot';
-      document.getElementById('setupSub').textContent = 'Choose your color — the robot takes the rest';
-      document.getElementById('playerCount').style.display = 'none';
-      State.numPlayers = 4;
+      document.getElementById('setupSub').textContent = 'How many robots do you want to play against?';
+      document.getElementById('playerCount').style.display = 'flex';
+      setPlayerCountLabels('bot');
+      State.numPlayers = State.numPlayers || 2;
       openSetup();
     } else if(mode==='local'){
       document.getElementById('setupTitle').textContent = 'Local Multiplayer';
       document.getElementById('setupSub').textContent = 'Choose number of players';
       document.getElementById('playerCount').style.display = 'flex';
+      setPlayerCountLabels('local');
       openSetup();
     } else if(mode==='online'){
       showScreen('onlineChoiceScreen');
     }
   });
 });
+
+function setPlayerCountLabels(mode){
+  document.querySelectorAll('.pc-opt').forEach(o=>{
+    const n = +o.dataset.n;
+    o.textContent = mode==='bot' ? ('1v'+(n-1)) : String(n);
+  });
+}
 
 function openSetup(){
   document.querySelectorAll('.pc-opt').forEach(o=>o.classList.toggle('sel', +o.dataset.n===State.numPlayers));
@@ -1166,7 +1452,8 @@ function renderGame(){
     const div = document.createElement('div');
     div.className='phud'+(i===g.turn?' active':'');
     div.style.setProperty('--glow-c', colorHex[p.color]);
-    div.innerHTML = `<span class="pdot" style="background:${colorHex[p.color]}"></span>${escapeHtml(p.name)}<span class="cnt">${p.finished}/4</span>`;
+    const avatarTag = (p.color===State.myColor && State.profile) ? (State.profile.avatar+' ') : '';
+    div.innerHTML = `<span class="pdot" style="background:${colorHex[p.color]}"></span>${avatarTag}${escapeHtml(p.name)}<span class="cnt">${p.finished}/4</span>`;
     hud.appendChild(div);
   });
 
@@ -1179,7 +1466,7 @@ function renderGame(){
   const dice = document.getElementById('dice');
   dice.textContent = g.dice>0 ? g.dice : '🎲';
   dice.style.setProperty('--glow-c', colorHex[current.color]);
-  const canRoll = iAmCurrent && !g.diceRolled && !g.winner && !State.animating;
+  const canRoll = iAmCurrent && !g.diceRolled && !g.winner && !State.animating && !State.rolling;
   dice.classList.toggle('ready', canRoll);
   dice.classList.toggle('disabled', !canRoll);
 
@@ -1248,6 +1535,9 @@ function renderTokens(){
     p.tokens.forEach((pos,ti)=>{
       const el = document.createElement('div');
       el.className='token '+p.color;
+      if(p.color===State.myColor && State.profile && State.profile.skin && State.profile.skin!=='classic'){
+        el.classList.add('skin-'+State.profile.skin);
+      }
       el.id = tokenDomId(p.color+pi, ti);
       let coord, dx=0, dy=0;
       if(pos===-1){ coord = yardSlotPos(p.color, ti); }
@@ -1296,8 +1586,10 @@ function canMoveToken(p,pos,dice){
 document.getElementById('dice').addEventListener('click', onDiceClick);
 function onDiceClick(){
   const g = State.game;
-  if(!g || g.winner || State.animating) return;
+  if(!g || g.winner || State.animating || State.rolling) return;
   if(!isMyTurn() || g.diceRolled) return;
+  State.rolling = true;
+  document.getElementById('dice').classList.add('disabled');
   rollDice();
 }
 function rollDice(){
@@ -1315,6 +1607,7 @@ function rollDice(){
       const val = 1+Math.floor(Math.random()*6);
       g.dice = val;
       g.diceRolled = true;
+      State.rolling = false;
       const p = g.players[g.turn];
       const anyMove = p.tokens.some(pos=>canMoveToken(p,pos,val));
       if(!anyMove){
@@ -1441,7 +1734,7 @@ function maybeBotOrAutoTurn(){
   const p = g.players[g.turn];
   if(State.mode==='bot' && p.isBot){
     setTimeout(()=>{
-      if(!g.diceRolled) rollDice();
+      if(!g.diceRolled && !State.rolling){ State.rolling = true; rollDice(); }
     }, 700);
   }
 }
@@ -1497,6 +1790,8 @@ function onWin(colorOrWinnerColor){
   document.getElementById('winSub').textContent = 'All 4 tokens made it home 🎉';
   document.getElementById('winOverlay').classList.add('active');
   launchConfetti();
+  if(colorOrWinnerColor===State.myColor){ awardCoins(80, 'for winning!'); }
+  else if(State.mode!=='local'){ awardCoins(20, 'for playing'); }
   if(State.mode==='online') stopOnlinePolling();
 }
 document.getElementById('winPlayAgain').addEventListener('click', ()=>{
