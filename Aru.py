@@ -24,6 +24,8 @@ from telegram.ext import (
     filters,
 )
 
+from ludo_server import setup_ludo
+
 # ==========================
 # CONFIG
 # ==========================
@@ -370,6 +372,12 @@ async def main():
         )
     )
 
+    print("Aaru Bot is running...")
+
+    await app.initialize()
+    await app.start()
+
+    # Start webhook
     PORT = int(os.environ.get("PORT", 10000))
 
     RENDER_URL = os.environ.get(
@@ -379,18 +387,15 @@ async def main():
 
     webhook_url = f"{RENDER_URL}/{BOT_TOKEN}"
 
-    print("Webhook URL:", webhook_url)
-    print("Aaru Bot is running...")
-
-    await app.initialize()
-    await app.start()
+    await app.bot.set_webhook(
+        webhook_url,
+        drop_pending_updates=True
+    )
 
     await app.updater.start_webhook(
         listen="0.0.0.0",
         port=PORT,
-        url_path=BOT_TOKEN,
-        webhook_url=webhook_url,
-        drop_pending_updates=True
+        url_path=BOT_TOKEN
     )
 
     await asyncio.Event().wait()
