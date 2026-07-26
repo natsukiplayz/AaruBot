@@ -10,3 +10,6 @@ aiohttp==3.12.15
 flask
 flask-sock
 simple-websocket
+fastapi
+uvicorn
+jinja2
