@@ -24,8 +24,6 @@ from telegram.ext import (
     filters,
 )
 
-from ludo_server import setup_ludo
-
 # ==========================
 # CONFIG
 # ==========================
