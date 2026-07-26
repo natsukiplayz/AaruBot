@@ -485,37 +485,40 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not (mentioned or replied):
             return
 
-try:
-    user_id = update.effective_user.id
-    user_message = message.text
+    try:
 
-    users_db.update_one(
-        {"user_id": user_id},
-        {
-            "$set": {
-                "first_name": update.effective_user.first_name,
-                "username": update.effective_user.username
+        user_id = update.effective_user.id
+        user_message = message.text
+
+        users_db.update_one(
+            {"user_id": user_id},
+            {
+                "$set": {
+                    "first_name": update.effective_user.first_name,
+                    "username": update.effective_user.username
+                },
+                "$setOnInsert": {
+                    "user_id": user_id
+                },
+                "$addToSet": {
+                    "memory": user_message
+                }
             },
-            "$setOnInsert": {
-                "user_id": user_id
-            },
-            "$addToSet": {
-                "memory": user_message
-            }
-        },
-        upsert=True
-    )
+            upsert=True
+        )
 
-    reply = await ai_chat(
-        user_id,
-        user_message
-    )
+        reply = await ai_chat(
+            user_id,
+            user_message
+        )
 
-    await message.reply_text(reply)
+        await message.reply_text(reply)
 
-except Exception as e:
-    print(e)
-    await message.reply_text(f"Error:\n{e}")
+    except Exception as e:
+        print(e)
+        await message.reply_text(
+            f"Error:\n{e}"
+        )
 
 import random
 
