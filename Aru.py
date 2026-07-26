@@ -371,13 +371,32 @@ GENERAL:
 - Keep replies short to medium.
 - Talk like a normal Hinglish friend.
 
-MAIN THING SHOULD BE DONE STRICTLY:
-- Always think and talk don't just spit any random words out first thing about it and clearly answer which will look like it's good reply
+CONVERSATION QUALITY:
+
+- Think about what the user actually means before replying.
+- Reply to the user's main point first.
+- Never ignore a question.
+- Never answer with random words or generic filler.
+- Every reply should feel like it came from a real person.
+- Be emotionally aware. If the user is joking, joke back. If they're serious, answer seriously.
+- Don't repeat yourself.
+- Don't overuse "acha", "hmm", "haan", "hehe".
+- Ask follow-up questions only when they fit naturally.
+- Don't force questions into every reply.
+- Keep replies concise but meaningful.
+- Sound like an intelligent, friendly 17-year-old girl chatting with a friend.
+- Avoid sounding like customer support or an AI assistant.
+- And act like a teenager girl 
+Example: 
+user: I'm your brother from now/me tumhara bhai hu aaj se
+you should say: huhhh?? aur esa kyu 😒
+- Never make yourself their sister until it was a same sex girl infront 
+- You're only sister of other girls but not boys
 """
 
 
     response = client.chat.complete(
-        model="mistral-small-latest",
+        model="mistral-large-latest",
         messages=[
             {
                 "role": "system",
@@ -398,41 +417,34 @@ MAIN THING SHOULD BE DONE STRICTLY:
 from telegram import MessageEntity
 
 
-EMOJI_MAP = {
-    ":heart:": ("❤️", "6271407384720051182"),
-    ":heart2:": ("❤️", "6269340616392445825"),
-
-    ":laugh:": ("😂", "6064341698505349289"),
-    ":smile:": ("😊", "5375125990118793401"),
-    ":grin:": ("😁", "6228626070183088739"),
-
-    ":eyes:": ("👀", "6109403885489623596"),
-    ":eyes2:": ("👀", "6158981960002704763"),
-
-    ":angry:": ("😠", "6334667726094599941"),
-    ":angry2:": ("😡", "6318855971498105536"),
-
-    ":yawn:": ("🥱", "5370562295309017355"),
-    ":melt:": ("🫠", "5470082691921619031"),
-
-    ":unamused:": ("😒", "6334649794606139137"),
-    ":expressionless:": ("😑", "6161183487224193623"),
-
-    ":cry:": ("😭", "6334754651937703379"),
-    ":cry2:": ("😢", "5298722881314764502"),
-
-    ":fear:": ("😨", "6228534372631318607"),
-    ":cold:": ("😰", "6334323261127526515"),
-    ":shock:": ("😱", "6334547209312274007"),
-
-    ":clap:": ("👏", "6064284639864822411"),
-    ":dance:": ("💃", "6271515257118658341"),
-
-    ":dotted:": ("🫥", "6231081125029088539"),
-    ":sad:": ("😔", "6231245905744367218"),
-    ":cool:": ("😎", "6066879272558008581"),
+NORMAL_TO_PLACEHOLDER = {
+    "❤️": ":heart:",
+    "😂": ":laugh:",
+    "😊": ":smile:",
+    "😁": ":grin:",
+    "👀": ":eyes:",
+    "😠": ":angry:",
+    "😡": ":angry2:",
+    "🥱": ":yawn:",
+    "🫠": ":melt:",
+    "😒": ":unamused:",
+    "😑": ":expressionless:",
+    "😭": ":cry:",
+    "😢": ":cry2:",
+    "😨": ":fear:",
+    "😰": ":cold:",
+    "😱": ":shock:",
+    "👏": ":clap:",
+    "💃": ":dance:",
+    "🫥": ":dotted:",
+    "😔": ":sad:",
+    "😎": ":cool:",
 }
 
+for emoji, placeholder in NORMAL_TO_PLACEHOLDER.items():
+    reply = reply.replace(emoji, placeholder)
+
+text, entities = convert_premium_emojis(reply)
 
 def utf16_len(text):
     return len(text.encode("utf-16-le")) // 2
