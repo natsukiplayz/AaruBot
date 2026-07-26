@@ -341,19 +341,17 @@ def main():
 
     PORT = int(os.environ.get("PORT", 10000))
     RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
+    WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 
     print("Aaru Bot is running...")
 
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
-
-app.run_webhook(
-    listen="0.0.0.0",
-    port=PORT,
-    webhook_url=f"{RENDER_URL}/{BOT_TOKEN}",
-    secret_token=WEBHOOK_SECRET,
-)
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        webhook_url=f"{RENDER_URL}/{WEBHOOK_SECRET}",
+        secret_token=WEBHOOK_SECRET,
+    )
 
 
 if __name__ == "__main__":
-    asyncio.set_event_loop(asyncio.new_event_loop())
     main()
