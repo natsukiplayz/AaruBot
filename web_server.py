@@ -1,3 +1,4 @@
+
 import os
 import json
 import random
@@ -5,132 +6,314 @@ import random
 from flask import Flask, send_from_directory
 from flask_sock import Sock
 
-app = Flask(__name__)
+app = Flask(
+    __name__,
+    static_folder="public",
+    static_url_path=""
+)
+
 sock = Sock(app)
 
 rooms = {}
 
 CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-COLORS = ["red", "green", "yellow", "blue"]
+COLORS = [
+    "red",
+    "green",
+    "yellow",
+    "blue"
+]
 
 
-def gen_code():
+def generate_code():
     while True:
-        code = "".join(random.choice(CODE_CHARS) for _ in range(4))
+        code = "".join(
+            random.choice(CODE_CHARS)
+            for _ in range(4)
+        )
+
         if code not in rooms:
             return code
 
 
 def send(ws, data):
-    ws.send(json.dumps(data))
+    try:
+        ws.send(json.dumps(data))
+    except:
+        pass
 
 
-def broadcast(room, data, except_ws=None):
-    for client in rooms[room]["clients"]:
-        if client != except_ws:
-            send(client, data)
+def broadcast(room_code, data, except_ws=None):
+
+    if room_code not in rooms:
+        return
+
+    room = rooms[room_code]
+
+    dead = []
+
+    for client in room["clients"]:
+
+        if client == except_ws:
+            continue
+
+        try:
+            client.send(json.dumps(data))
+        except:
+            dead.append(client)
+
+    for client in dead:
+        if client in room["clients"]:
+            room["clients"].remove(client)
 
 
 @app.route("/")
-def home():
-    return send_from_directory("public", "index.html")
+def index():
+    return send_from_directory(
+        "public",
+        "index.html"
+    )
+
+
+@app.route("/<path:path>")
+def static_files(path):
+    return send_from_directory(
+        "public",
+        path
+    )
 
 
 @sock.route("/ludo")
-def ludo(ws):
+def websocket(ws):
 
     room_code = None
     uid = None
 
     while True:
+
         try:
-            data = json.loads(ws.receive())
 
-            if data["type"] == "create":
+            raw = ws.receive()
 
-                room_code = gen_code()
+            if raw is None:
+                break
+
+            data = json.loads(raw)
+
+            msg = data.get("type")
+
+            # -------------------
+            # CREATE ROOM
+            # -------------------
+
+            if msg == "create":
+
+                room_code = generate_code()
+
                 uid = data["uid"]
 
                 rooms[room_code] = {
+
                     "host": uid,
+
                     "players": [
                         {
                             "uid": uid,
-                            "name": data.get("name", "Player"),
+                            "name": data.get(
+                                "name",
+                                "Player"
+                            ),
                             "color": "red"
                         }
                     ],
-                    "clients": [ws]
+
+                    "clients": [ws],
+
+                    "game": None
+
                 }
 
-                send(ws, {
-                    "type": "created",
-                    "code": room_code
-                })
+                send(
+                    ws,
+                    {
+                        "type": "created",
+                        "code": room_code
+                    }
+                )
+            # -------------------
+            # JOIN ROOM
+            # -------------------
 
+            elif msg == "join":
 
-            elif data["type"] == "join":
-
-                room_code = data["code"]
+                room_code = data["code"].upper()
                 uid = data["uid"]
 
                 if room_code not in rooms:
-                    send(ws,{
-                        "type":"error",
-                        "message":"Room not found"
-                    })
-                    continue
 
+                    send(
+                        ws,
+                        {
+                            "type": "error",
+                            "message": "Room not found"
+                        }
+                    )
+
+                    continue
 
                 room = rooms[room_code]
 
+                if len(room["players"]) >= 4:
+
+                    send(
+                        ws,
+                        {
+                            "type": "error",
+                            "message": "Room is full"
+                        }
+                    )
+
+                    continue
+
                 color = COLORS[len(room["players"])]
 
-                room["players"].append({
-                    "uid":uid,
-                    "name":data.get("name","Player"),
-                    "color":color
-                })
+                room["players"].append(
+                    {
+                        "uid": uid,
+                        "name": data.get(
+                            "name",
+                            "Player"
+                        ),
+                        "color": color
+                    }
+                )
 
                 room["clients"].append(ws)
 
-
-                send(ws,{
-                    "type":"joined",
-                    "players":room["players"]
-                })
-
+                send(
+                    ws,
+                    {
+                        "type": "joined",
+                        "code": room_code,
+                        "host": room["host"],
+                        "yourColor": color,
+                        "players": room["players"]
+                    }
+                )
 
                 broadcast(
                     room_code,
                     {
-                        "type":"update",
-                        "players":room["players"]
+                        "type": "lobby-update",
+                        "host": room["host"],
+                        "players": room["players"]
                     },
-                    ws
+                    except_ws=ws
                 )
 
+            # -------------------
+            # START GAME
+            # -------------------
 
-            elif data["type"] == "state":
+            elif msg == "start":
+
+                room_code = data["code"]
+
+                if room_code not in rooms:
+                    continue
+
+                room = rooms[room_code]
+
+                room["game"] = data["game"]
 
                 broadcast(
                     room_code,
                     {
-                        "type":"state",
-                        "data":data["data"]
-                    },
-                    ws
+                        "type": "game-started",
+                        "players": room["players"],
+                        "game": room["game"]
+                    }
                 )
 
+            # -------------------
+            # GAME STATE UPDATE
+            # -------------------
 
+            elif msg == "state":
+
+                room_code = data["code"]
+
+                if room_code not in rooms:
+                    continue
+
+                room = rooms[room_code]
+
+                room["game"] = data["state"]
+
+                broadcast(
+                    room_code,
+                    {
+                        "type": "state",
+                        "state": room["game"]
+                    },
+                    except_ws=ws
+                )
         except Exception as e:
             print(e)
             break
 
+    # -------------------
+    # DISCONNECT
+    # -------------------
 
-PORT = int(os.environ.get("PORT",5000))
+    if room_code and room_code in rooms:
 
-app.run(
-    host="0.0.0.0",
-    port=PORT
-)
+        room = rooms[room_code]
+
+        if ws in room["clients"]:
+            room["clients"].remove(ws)
+
+        room["players"] = [
+            p for p in room["players"]
+            if p["uid"] != uid
+        ]
+
+        # Delete empty room
+        if len(room["players"]) == 0:
+
+            del rooms[room_code]
+
+        else:
+
+            # Host left -> make first player host
+            if room["host"] == uid:
+                room["host"] = room["players"][0]["uid"]
+
+            broadcast(
+                room_code,
+                {
+                    "type": "lobby-update",
+                    "host": room["host"],
+                    "players": room["players"]
+                }
+            )
+
+
+# -------------------
+# RUN SERVER
+# -------------------
+
+if __name__ == "__main__":
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            5000
+        )
+    )
+
+    app.run(
+        host="0.0.0.0",
+        port=port,
+        threaded=True
+    )
