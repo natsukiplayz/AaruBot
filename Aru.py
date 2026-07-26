@@ -354,7 +354,7 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==========================
 # MAIN
 # ==========================
-async def main():
+def main():
 
     app = Application.builder().token(BOT_TOKEN).build()
 
@@ -370,22 +370,11 @@ async def main():
         )
     )
 
-    print("Aaru Bot is running...")
-
-    await app.initialize()
-    await app.start()
-
-    # Remove any old webhook
-    await app.bot.delete_webhook(drop_pending_updates=True)
-
-    print("Bot started with polling.")
-
-    # Start polling
-    await app.updater.start_polling()
-
-    # Keep the bot alive
-    await asyncio.Event().wait()
+    app.run_polling(
+        drop_pending_updates=True,
+        allowed_updates=Update.ALL_TYPES
+    )
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
