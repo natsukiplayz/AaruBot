@@ -344,12 +344,14 @@ def main():
 
     print("Aaru Bot is running...")
 
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=f"{RENDER_URL}/{BOT_TOKEN}",
-        secret_token=BOT_TOKEN,
-    )
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
+
+app.run_webhook(
+    listen="0.0.0.0",
+    port=PORT,
+    webhook_url=f"{RENDER_URL}/{BOT_TOKEN}",
+    secret_token=WEBHOOK_SECRET,
+)
 
 
 if __name__ == "__main__":
