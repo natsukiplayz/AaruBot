@@ -375,27 +375,15 @@ async def main():
     await app.initialize()
     await app.start()
 
-    # Start webhook
-    PORT = int(os.environ.get("PORT", 10000))
+    # Remove any old webhook
+    await app.bot.delete_webhook(drop_pending_updates=True)
 
-    RENDER_URL = os.environ.get(
-        "RENDER_EXTERNAL_URL",
-        "https://aarubot.onrender.com"
-    )
+    print("Bot started with polling.")
 
-    webhook_url = f"{RENDER_URL}/{BOT_TOKEN}"
+    # Start polling
+    await app.updater.start_polling()
 
-    await app.bot.set_webhook(
-        webhook_url,
-        drop_pending_updates=True
-    )
-
-    await app.updater.start_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=BOT_TOKEN
-    )
-
+    # Keep the bot alive
     await asyncio.Event().wait()
 
 
