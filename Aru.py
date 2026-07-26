@@ -1,17 +1,30 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ParseMode
-from telegram.ext import MessageHandler, filters
-from telegram.ext import Application, CommandHandler, ContextTypes
 import os
-os.environ["RESOLV_CONF"] = "/data/data/com.termux/files/usr/etc/resolv.conf"
+
 from pymongo import MongoClient
+from mistralai import Mistral
+
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
+
+from telegram.constants import (
+    ParseMode,
+    ChatType,
+)
+
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
 
 # ==========================
 # CONFIG
 # ==========================
-
-import os
-
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI") 
 
@@ -157,12 +170,6 @@ async def font(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result = text.translate(FONT3)
 
     await update.message.reply_text(result)
-
-from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
-from mistralai import Mistral
-from telegram.constants import ChatType
-from telegram.helpers import escape_markdown
 
 API_KEY = os.getenv("API_KEY")
 
