@@ -508,7 +508,6 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==========================
 # AI MESSAGE
 # ==========================
-
 async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     message = update.message
@@ -516,9 +515,11 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message or not message.text:
         return
 
+    text = message.text.lower().strip()
+
     # Private → Always ON
     if update.effective_chat.type == ChatType.PRIVATE:
-        enabled = True
+        mentioned = True
 
     else:
         data = chat_settings.find_one(
@@ -531,8 +532,6 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         me = await context.bot.get_me()
-
-        text = message.text.lower().strip()
 
         mentioned = f"@{me.username.lower()}" in text
 
@@ -553,8 +552,9 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     )
 
-    if not (mentioned or replied or called_name):
-        return
+    if update.effective_chat.type != ChatType.PRIVATE:
+        if not (mentioned or replied or called_name):
+            return
 
     try:
 
@@ -583,12 +583,12 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_message
         )
 
-text, entities = convert_premium_emojis(reply)
+        text, entities = convert_premium_emojis(reply)
 
-await message.reply_text(
-    text=text,
-    entities=entities
-)
+        await message.reply_text(
+            text=text,
+            entities=entities
+        )
 
     except Exception as e:
         print(e)
