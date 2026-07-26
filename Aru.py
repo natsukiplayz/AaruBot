@@ -24,6 +24,7 @@ from telegram.ext import (
     filters,
 )
 
+from telegram import MessageEntity
 from telegram.constants import MessageEntityType
 
 from flask import Flask
@@ -414,6 +415,11 @@ you should say: huhhh?? aur esa kyu 😒
 
     reply = response.choices[0].message.content
 
+    for emoji, placeholder in NORMAL_TO_PLACEHOLDER.items():
+        reply = reply.replace(emoji, placeholder)
+
+    return reply
+
 
 from telegram import MessageEntity
 
@@ -456,6 +462,29 @@ EMOJI_MAP = {
 def utf16_len(text):
     return len(text.encode("utf-16-le")) // 2
 
+NORMAL_TO_PLACEHOLDER = {
+    "❤️": ":heart:",
+    "😂": ":laugh:",
+    "😊": ":smile:",
+    "😁": ":grin:",
+    "👀": ":eyes:",
+    "😠": ":angry:",
+    "😡": ":angry2:",
+    "🥱": ":yawn:",
+    "🫠": ":melt:",
+    "😒": ":unamused:",
+    "😑": ":expressionless:",
+    "😭": ":cry:",
+    "😢": ":cry2:",
+    "😨": ":fear:",
+    "😰": ":cold:",
+    "😱": ":shock:",
+    "👏": ":clap:",
+    "💃": ":dance:",
+    "🫥": ":dotted:",
+    "😔": ":sad:",
+    "😎": ":cool:",
+}
 
 def convert_premium_emojis(text):
 
@@ -478,7 +507,7 @@ def convert_premium_emojis(text):
 
                 entities.append(
                     MessageEntity(
-                        type=MessageEntity.CUSTOM_EMOJI,
+                        type=MessageEntityType.CUSTOM_EMOJI,
                         offset=offset,
                         length=utf16_len(emoji),
                         custom_emoji_id=emoji_id,
