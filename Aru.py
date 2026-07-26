@@ -10,10 +10,10 @@ from pymongo import MongoClient
 # CONFIG
 # ==========================
 
-BOT_TOKEN = "8833511932:AAH4mIZLutxqizVg4YywhN6pgEKpbZiFUu4"
+import os
 
-# MongoDB URI
-MONGO_URI = "mongodb://natsukiplayzzz_db_user:LSTTxFwIWGLmDj5L@ac-wfwjqfz-shard-00-00.lhpef0t.mongodb.net:27017,ac-wfwjqfz-shard-00-01.lhpef0t.mongodb.net:27017,ac-wfwjqfz-shard-00-02.lhpef0t.mongodb.net:27017/?ssl=true&replicaSet=atlas>
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+MONGO_URI = os.getenv("MONGO_URI") 
 
 OD1 = 8752939430
 OD2 = 987654321
@@ -164,7 +164,7 @@ from mistralai import Mistral
 from telegram.constants import ChatType
 from telegram.helpers import escape_markdown
 
-API_KEY = "kPYoTvWAcjgjK53ebBvATIllVxt4J1of"
+API_KEY = os.getenv("API_KEY")
 
 client = Mistral(api_key=API_KEY)
 
