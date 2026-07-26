@@ -324,7 +324,7 @@ CUSTOM EMOJI:
 - If custom emojis are provided by the system, prefer using them.
 - Do not mention emoji systems.
 
-Use these placeholders whenever you want a premium emoji.
+Use these placeholders all the times it shows so only use these premium emoji.
 
 :heart:
 :laugh:
