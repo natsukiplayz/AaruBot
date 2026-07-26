@@ -394,27 +394,30 @@ you should say: huhhh?? aur esa kyu 😒
 - You're only sister of other girls but not boys
 """
 
-
 response = client.chat.complete(
-    model="mistral-large-latest",
-    messages=[
-        {
-            "role": "system",
-            "content": system_prompt
-        },
-        {
-            "role": "user",
-            "content": user_message
-        }
-    ],
-    temperature=1.05,
-    top_p=0.95,
-    max_tokens=700,
-    frequency_penalty=0.3,
-    presence_penalty=0.2,
-)
+        model="mistral-large-latest",
+        messages=[
+            {
+                "role": "system",
+                "content": system_prompt
+            },
+            {
+                "role": "user",
+                "content": user_message
+            }
+        ],
+        temperature=1.0,
+        top_p=0.9,
+        max_tokens=700,
+    )
 
-reply = response.choices[0].message.content
+    reply = response.choices[0].message.content
+
+    # Convert any normal emojis the model may output into placeholders
+    for placeholder, (emoji, _) in EMOJI_MAP.items():
+        reply = reply.replace(emoji, placeholder)
+
+    return reply
 
 from telegram import MessageEntity
 
