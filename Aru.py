@@ -325,9 +325,7 @@ async def ai_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==========================
 # MAIN
 # ==========================
-
-async def main():
-
+def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -343,23 +341,19 @@ async def main():
 
     PORT = int(os.environ.get("PORT", 10000))
     RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
+
     WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 
     print("Aaru Bot is running...")
 
-    await app.initialize()
-    await app.start()
-
-    await app.updater.start_webhook(
+    app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         webhook_url=f"{RENDER_URL}/{BOT_TOKEN}",
-        secret_token=WEBHOOK_SECRET
+        secret_token=WEBHOOK_SECRET,
+        drop_pending_updates=True
     )
-
-    await app.updater.idle()
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
