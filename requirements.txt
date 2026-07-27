@@ -1,4 +1,4 @@
-python-telegram-bot[webhooks]==22.2
+python-telegram-bot[webhooks]>=22.8
 pymongo==4.17.0
 dnspython==2.8.0
 mistralai==1.9.10
