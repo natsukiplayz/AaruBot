@@ -267,12 +267,12 @@ EMOJI_MAP = {
     ":sad:": ("😔", "6231245905744367218"),
     ":cool:": ("😎", "6066879272558008581"),
 
-    # profile / economy icons
-    "icon": ("⚡️", "5407056009652889107"),
-    "coins": ("💰", "6055236904708739912"),
-    "diamond": ("💎", "6230923516909195212"),
-    "clipbook": ("🗓", "6238042150324409739"),
-    "treasurechest": ("💰", "5278467510604160626"),
+    # Profile / Economy Icons
+    ":icon:": ("⚡️", "5407056009652889107"),
+    ":coins:": ("💰", "6055236904708739912"),
+    ":diamond:": ("💎", "6230923516909195212"),
+    ":clipbook:": ("🗓️", "6238042150324409739"),
+    ":treasurechest:": ("💰", "5278467510604160626"),
 }
 
 NORMAL_TO_PLACEHOLDER = {
@@ -514,6 +514,9 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==========================================================
 # /pf PROFILE COMMAND
 # ==========================================================
+# ==========================================================
+# /pf PROFILE COMMAND
+# ==========================================================
 
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -525,26 +528,29 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = user.first_name
 
     text = (
-        f"::icon::Name: {name}\n"
-        f"::coins::Balance: {coins}Z\n"
-        f"::diamond::Gems: {gems}\n"
-        f"::clipbook::Daily Streak: {streak}"
+        f":icon: Nᴀᴍᴇ : {name}\n"
+        f":coins: Bᴀʟᴀɴᴄᴇ : {coins}Z\n"
+        f":diamond: Gᴇᴍꜱ : {gems}\n"
+        f":clipbook: Dᴀɪʟʏ Sᴛʀᴇᴀᴋ : {streak}"
     )
 
     reply, entities = convert_premium_emojis(text)
 
-    # add the name as a clickable mention
     idx = reply.index(name)
     entities.append(
         MessageEntity(
             type=MessageEntityType.TEXT_LINK,
             offset=utf16_len(reply[:idx]),
             length=utf16_len(name),
-            url=f"tg://user?id={user.id}"
+            url=f"tg://user?id={user.id}",
         )
     )
 
-    await update.message.reply_text(reply, entities=entities)
+    await update.message.reply_text(
+        reply,
+        entities=entities,
+    )
+
 
 # ==========================================================
 # /daily COMMAND
@@ -565,42 +571,59 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     streak_cap = data.get("streak_cap", STARTING_STREAK_CAP)
 
     if last_daily == today:
-        text, entities = convert_premium_emojis(
-            "::clipbook::You already opened today's treasure. Come back tomorrow!"
+        reply, entities = convert_premium_emojis(
+            ":clipbook: Yᴏᴜ Aʟʀᴇᴀᴅʏ Cʟᴀɪᴍᴇᴅ Tᴏᴅᴀʏ'ꜱ Dᴀɪʟʏ Rᴇᴡᴀʀᴅ."
         )
-        await update.message.reply_text(text, entities=entities)
+
+        await update.message.reply_text(
+            reply,
+            entities=entities,
+        )
         return
 
-    # streak logic: continues if claimed yesterday, resets if a day was missed
-    streak = streak + 1 if last_daily == yesterday else 1
+    if last_daily == yesterday:
+        streak += 1
+    else:
+        streak = 1
 
     gem_gain = 1 if streak % GEM_EVERY_STREAK == 0 else 0
 
-    # streak cap grows once the current cap is reached
     if streak >= streak_cap:
         streak_cap += STREAK_CAP_INCREMENT
 
     users_db.update_one(
         {"user_id": user_id},
         {
-            "$inc": {"coins": DAILY_COINS, "xp": DAILY_XP, "gems": gem_gain},
-            "$set": {"last_daily": today, "streak": streak, "streak_cap": streak_cap},
+            "$inc": {
+                "coins": DAILY_COINS,
+                "xp": DAILY_XP,
+                "gems": gem_gain,
+            },
+            "$set": {
+                "last_daily": today,
+                "streak": streak,
+                "streak_cap": streak_cap,
+            },
         },
-        upsert=True
+        upsert=True,
     )
 
     text = (
-        "::treasurechest::You just opened a daily treasure\n"
-        f"Amount: {DAILY_COINS}Z\n"
-        f"Xp: +{DAILY_XP}\n"
-        f"Streak: {streak}/{streak_cap}"
+        ":treasurechest: Dᴀɪʟʏ Rᴇᴡᴀʀᴅ Cʟᴀɪᴍᴇᴅ!\n\n"
+        f":coins: Cᴏɪɴꜱ : +{DAILY_COINS}Z\n"
+        f":icon: XP : +{DAILY_XP}\n"
+        f":clipbook: Sᴛʀᴇᴀᴋ : {streak}/{streak_cap}"
     )
 
     if gem_gain:
-        text += "\n::diamond::Bonus: +1 gem"
+        text += "\n:diamond: Bᴏɴᴜꜱ : +1 Gᴇᴍ"
 
     reply, entities = convert_premium_emojis(text)
-    await update.message.reply_text(reply, entities=entities)
+
+    await update.message.reply_text(
+        reply,
+        entities=entities,
+    )
 
 # ==========================================================
 # AI MESSAGE HANDLER (group + private chat)
