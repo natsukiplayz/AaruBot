@@ -42,7 +42,7 @@ from telegram.ext import (
     filters,
 )
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 import threading
 
 keep_alive_app = Flask(__name__)
@@ -52,7 +52,8 @@ keep_alive_app = Flask(__name__)
 def add_cors_headers(response):
     # aaru-shop.html is a separate static page, so it calls this API
     # cross-origin. Access is gated by Telegram login-widget verification
-    # below, not by CORS, so an open origin here is fine.
+    # / the login-session handshake below, not by CORS, so an open origin
+    # here is fine.
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
@@ -91,7 +92,11 @@ GROUP_LINK = "https://t.me/Uchiha_ClaniX"
 DEVELOPER_USERNAME = "ig_yuuki"
 SUPPORT_USERNAME = "Ig_Jinn"
 
-BOT_USERNAME = "im_aarubot"  # used by the shop site's Telegram Login Widget
+BOT_USERNAME = "im_aarubot"  # used by the shop site's login deep-link
+
+# Public URL of aaru-shop.html (used in the /shop command and the
+# "Login successful" button sent after a web-login deep link completes).
+SHOP_URL = os.getenv("SHOP_URL", "https://aarushop.oneapp.dev")
 
 # Process start time, used for /stats uptime.
 BOT_START_TIME = time.time()
@@ -106,8 +111,13 @@ users_db = db["users"]
 games_db = db["games"]
 settings_db = db["settings"]
 chat_settings = db["chat_settings"]
-groups_db = db["groups"]  # tracks every group the bot has seen, for /stats
-gem_orders_db = db["gem_orders"]  # tracks Cashfree gem-purchase orders
+groups_db = db["groups"]           # tracks every group the bot has seen, for /stats
+gem_orders_db = db["gem_orders"]   # tracks Cashfree gem-purchase orders
+
+icon_pool_db = db["icon_pool"]     # owner-curated pool of REAL premium custom-emoji icons
+user_icons_db = db["user_icons"]   # maps a 6-digit Aaru ID -> the real icon a user owns
+gift_catalog_db = db["gift_catalog"]   # premium custom-emoji overrides for /gift items
+login_sessions_db = db["login_sessions"]  # website <-> Telegram deep-link login handshake
 
 # ==========================
 # ECONOMY DEFAULTS
@@ -118,30 +128,36 @@ STARTING_STREAK_CAP = 10
 STREAK_CAP_INCREMENT = 5
 GEM_EVERY_STREAK = 5
 
-GEM_COIN_VALUE = 15000       # 1 gem = 15k coins (Z)
-GEM_TRANSFER_FEE = 10000     # cost to transfer a single gem
+GEM_COIN_VALUE = 15000        # 1 gem = 15k coins (Z) -- used everywhere gems<->coins convert
+GEM_TRANSFER_FEE = 10000      # cost to transfer a single gem
 MAX_GEM_USE_PER_DAY = 5
-ICON_PRICES = {
-    "icon_1": 20000,
-    "icon_2": 30000,
-    "icon_3": 40000,
-}
+
+ICON_PACK_PRICE = 10000       # Z. Also payable in the gem-equivalent (see bomb_has_enough).
 
 # ==========================
 # SHOP (backs aaru-shop.html)
 # ==========================
-# Coin-priced catalog, shown as-is on the shop site.
+# Every item's "price" is denominated in Z. Paying with gems is allowed for
+# everything -- bomb_has_enough()/bomb_deduct() (defined further down) already
+# know how to check/charge a Z-denominated price in either currency, so we
+# reuse them instead of keeping a second gem price table that could drift.
+#
+# Boosts have been removed entirely. The only coin-shop item right now is
+# the Icon Pack, which grants a random premium icon (see the double-ID
+# system below /api/shop/buy and /seticon).
 SHOP_ITEMS = [
-    {"id": "icon_1", "name": "Icon Pack I", "category": "icons", "price": ICON_PRICES["icon_1"], "emoji": "⚡️", "description": "A profile icon shown next to your name on /pf."},
-    {"id": "icon_2", "name": "Icon Pack II", "category": "icons", "price": ICON_PRICES["icon_2"], "emoji": "💎", "description": "A rarer profile icon for your card."},
-    {"id": "icon_3", "name": "Icon Pack III", "category": "icons", "price": ICON_PRICES["icon_3"], "emoji": "👑", "description": "The rarest icon currently available."},
-    {"id": "streak_shield", "name": "Streak Shield", "category": "boosts", "price": 8000, "emoji": "🔥", "description": "Protects your /daily streak once if you miss a day."},
-    {"id": "xp_boost_1h", "name": "XP Boost (1h)", "category": "boosts", "price": 5000, "emoji": "📈", "description": "Double XP from /daily and Bomb wins for 1 hour."},
+    {
+        "id": "icon_pack",
+        "name": "Icon Pack",
+        "category": "icons",
+        "price": ICON_PACK_PRICE,
+        "emoji": "🎁",
+        "description": "Unlocks a random custom Aaru icon. You'll get a 6-digit ID — use /seticon <id> to equip it.",
+    },
 ]
 
-# Real-money gem pricing (INR). Placeholder until Cashfree is wired up --
-# tell Claude your Cashfree keys and this becomes a real checkout.
-GEM_INR_PRICE = 15  # ₹ per gem
+# Real-money gem pricing (INR).
+GEM_INR_PRICE = 10  # ₹ per gem
 GEM_BUNDLES = [1, 5, 10, 25]
 CASHFREE_APP_ID = os.getenv("CASHFREE_APP_ID")
 CASHFREE_SECRET_KEY = os.getenv("CASHFREE_SECRET_KEY")
@@ -151,6 +167,30 @@ CASHFREE_BASE = (
     else "https://api.cashfree.com/pg"
 )
 SHOP_RETURN_URL = os.getenv("SHOP_RETURN_URL", "https://aarushop.oneapp.dev/gems/return?order_id={order_id}")
+
+# ==========================================================
+# GIFTS
+# ==========================================================
+# Free-tier catalog: plain unicode emoji, prices in Z. Owners can attach a
+# real premium custom-emoji to any of these with /addgift (see below) --
+# that upgrade is stored in gift_catalog_db and resolved through its own
+# 6-digit Aaru ID, never exposing the raw Telegram custom_emoji_id.
+GIFT_ITEMS = [
+    {"key": "rose", "emoji": "🌹", "name": "Rose", "price": 500},
+    {"key": "chocolate", "emoji": "🍫", "name": "Chocolate", "price": 800},
+    {"key": "ring", "emoji": "💍", "name": "Ring", "price": 2000},
+    {"key": "teddy", "emoji": "🧸", "name": "Teddy Bear", "price": 1500},
+    {"key": "pizza", "emoji": "🍕", "name": "Pizza", "price": 600},
+    {"key": "surprise", "emoji": "🎁", "name": "Surprise Box", "price": 2500},
+    {"key": "puppy", "emoji": "🐶", "name": "Puppy", "price": 3000},
+    {"key": "cake", "emoji": "🎂", "name": "Cake", "price": 1000},
+    {"key": "loveletter", "emoji": "💌", "name": "Love Letter", "price": 400},
+    {"key": "cat", "emoji": "🐱", "name": "Cat", "price": 2500},
+    {"key": "tulip", "emoji": "🌷", "name": "Tulip", "price": 1500},
+    {"key": "girlfriend", "emoji": "😐", "name": "Girl Friend", "price": 1000},
+    {"key": "boyfriend", "emoji": "⚡", "name": "Boy Friend", "price": 1000},
+    {"key": "bmw", "emoji": "🏎", "name": "BMW", "price": 5000},
+]
 
 
 def check_telegram_login(payload: dict) -> bool:
@@ -188,6 +228,7 @@ def get_profile_dict(user_id: int, fallback_name: str = "") -> dict:
         "streak": doc.get("streak", 0),
         "xp": doc.get("xp", 0),
         "inventory": doc.get("inventory", []),
+        "active_icon": doc.get("active_icon_char"),
         "is_owner": user_id in OWNER_IDS,
     }
 
@@ -222,21 +263,134 @@ def api_profile(user_id):
     return jsonify({"ok": True, "profile": get_profile_dict(user_id)})
 
 
+@keep_alive_app.route("/api/avatar/<int:user_id>", methods=["GET"])
+def api_avatar(user_id):
+    """
+    Proxies the user's real Telegram profile photo so the shop site can show
+    it. We fetch and stream the bytes ourselves rather than handing back a
+    t.me/file URL, since that URL embeds BOT_TOKEN and must never reach the
+    browser.
+    """
+    try:
+        photos = requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/getUserProfilePhotos",
+            params={"user_id": user_id, "limit": 1},
+            timeout=10,
+        ).json()
+
+        if not photos.get("ok") or photos["result"]["total_count"] == 0:
+            return jsonify({"ok": False}), 404
+
+        file_id = photos["result"]["photos"][0][-1]["file_id"]
+        file_info = requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/getFile",
+            params={"file_id": file_id},
+            timeout=10,
+        ).json()
+        file_path = file_info["result"]["file_path"]
+
+        image = requests.get(
+            f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}",
+            timeout=10,
+        )
+        return Response(image.content, mimetype="image/jpeg")
+    except Exception:
+        return jsonify({"ok": False}), 502
+
+
+# ---------------- website <-> Telegram login handshake ----------------
+#
+# Flow:
+#   1. Site calls POST /api/login/create -> gets a short-lived {token}.
+#   2. Site opens https://t.me/<bot>?start=weblogin_<token> (deep link).
+#   3. User taps "Start" in Telegram. The bot's /start handler sees the
+#      weblogin_ prefix, marks the session "done" with that user's id, and
+#      replies "Login successful!" with an [Open Shop] button.
+#   4. Meanwhile the site polls GET /api/login/status/<token> until it sees
+#      status "done", then loads /api/profile/<user_id> + /api/avatar/<user_id>.
+
+@keep_alive_app.route("/api/login/create", methods=["POST", "OPTIONS"])
+def api_login_create():
+    if request.method == "OPTIONS":
+        return "", 204
+    token = uuid.uuid4().hex[:16]
+    login_sessions_db.insert_one({
+        "token": token,
+        "status": "pending",
+        "user_id": None,
+        "created_at": time.time(),
+    })
+    return jsonify({"ok": True, "token": token, "bot_username": BOT_USERNAME})
+
+
+@keep_alive_app.route("/api/login/status/<token>", methods=["GET"])
+def api_login_status(token):
+    session = login_sessions_db.find_one({"token": token})
+    if not session:
+        return jsonify({"ok": False, "message": "Unknown or expired login link."}), 404
+    # Login links are only valid for 10 minutes.
+    if time.time() - session["created_at"] > 600 and session["status"] == "pending":
+        return jsonify({"ok": True, "status": "expired"})
+    return jsonify({"ok": True, "status": session["status"], "user_id": session.get("user_id")})
+
+
 @keep_alive_app.route("/api/shop-items", methods=["GET"])
 def api_shop_items():
     return jsonify({
         "ok": True,
         "items": SHOP_ITEMS,
+        "gem_coin_value": GEM_COIN_VALUE,
         "gems": {"price_inr": GEM_INR_PRICE, "bundles": GEM_BUNDLES},
+        "gifts": GIFT_ITEMS,
     })
+
+
+def generate_unique_aaru_id() -> str:
+    """
+    A 6-digit numeric ID (max 6 digits, per design) that stands in for a
+    real premium custom-emoji. It's the outer layer of a two-layer
+    placeholder: this ID maps (server-side only, in user_icons_db /
+    gift_catalog_db) to the actual Telegram custom_emoji_id, which is itself
+    just a placeholder resolved by convert_premium_emojis(). Users only ever
+    see/handle the Aaru ID, so they can never grab a raw premium emoji id
+    and set it themselves.
+    """
+    while True:
+        candidate = str(random.randint(100000, 999999))
+        if not user_icons_db.find_one({"aaru_id": candidate}):
+            return candidate
+
+
+def grant_shop_item(user_id: int, item_id: str) -> dict:
+    """Applies the effect of owning `item_id`. Returns extra info for the buyer."""
+    if item_id == "icon_pack":
+        sample = list(icon_pool_db.aggregate([{"$sample": {"size": 1}}]))
+        if not sample:
+            return {"error": "no_icons_in_pool"}
+        pool_entry = sample[0]
+        aaru_id = generate_unique_aaru_id()
+        user_icons_db.insert_one({
+            "aaru_id": aaru_id,
+            "user_id": user_id,
+            "emoji_id": pool_entry["emoji_id"],
+            "emoji_char": pool_entry["emoji_char"],
+            "active": False,
+            "obtained_at": time.time(),
+        })
+        users_db.update_one({"user_id": user_id}, {"$addToSet": {"inventory": f"icon:{aaru_id}"}})
+        return {"aaru_icon_id": aaru_id}
+
+    users_db.update_one({"user_id": user_id}, {"$addToSet": {"inventory": item_id}})
+    return {}
 
 
 @keep_alive_app.route("/api/shop/buy", methods=["POST", "OPTIONS"])
 def api_shop_buy():
     """
-    Coin-priced purchases (icons, boosts). Owners (OD1/OD2) get every item
-    for free, instantly, no coin deduction -- everyone else needs enough
-    coins, deducted atomically so nobody can overspend by double-clicking.
+    Every item can be bought with coins OR gems. Owners (OD1/OD2) get every
+    item for free, instantly. Everyone else needs enough balance in the
+    chosen currency, deducted atomically via bomb_has_enough/bomb_deduct so
+    nobody can overspend by double-clicking.
     """
     if request.method == "OPTIONS":
         return "", 204
@@ -248,11 +402,17 @@ def api_shop_buy():
         return jsonify({"ok": False, "message": "Invalid user."}), 400
 
     item_id = payload.get("item_id")
+    currency = (payload.get("currency") or "coins").lower()
+    if currency not in ("coins", "gems"):
+        return jsonify({"ok": False, "message": "Currency must be 'coins' or 'gems'."}), 400
+
     item = next((i for i in SHOP_ITEMS if i["id"] == item_id), None)
     if item is None:
         return jsonify({"ok": False, "message": "Unknown item."}), 400
 
-    # Make sure the user has a document to work with.
+    if item_id == "icon_pack" and icon_pool_db.count_documents({}) == 0:
+        return jsonify({"ok": False, "message": "No icons available right now — check back soon."}), 503
+
     users_db.update_one(
         {"user_id": user_id},
         {"$setOnInsert": {"coins": 0, "gems": 0, "streak": 0, "xp": 0, "inventory": []}},
@@ -260,19 +420,52 @@ def api_shop_buy():
     )
 
     if user_id in OWNER_IDS:
-        users_db.update_one({"user_id": user_id}, {"$addToSet": {"inventory": item_id}})
-        return jsonify({"ok": True, "owner_bonus": True, "profile": get_profile_dict(user_id)})
+        extra = grant_shop_item(user_id, item_id)
+        return jsonify({"ok": True, "owner_bonus": True, **extra, "profile": get_profile_dict(user_id)})
 
-    doc = users_db.find_one({"user_id": user_id}) or {}
-    if item_id in doc.get("inventory", []):
-        return jsonify({"ok": False, "message": "You already own this item."}), 400
+    if not bomb_has_enough(user_id, currency, item["price"]):
+        return jsonify({"ok": False, "message": f"Not enough {currency}."}), 400
 
-    result = users_db.update_one(
-        {"user_id": user_id, "coins": {"$gte": item["price"]}},
-        {"$inc": {"coins": -item["price"]}, "$addToSet": {"inventory": item_id}},
-    )
-    if result.modified_count == 0:
-        return jsonify({"ok": False, "message": "Not enough coins."}), 400
+    bomb_deduct(user_id, currency, item["price"])
+    extra = grant_shop_item(user_id, item_id)
+    return jsonify({"ok": True, **extra, "profile": get_profile_dict(user_id)})
+
+
+@keep_alive_app.route("/api/convert", methods=["POST", "OPTIONS"])
+def api_convert():
+    """Two-way Z <-> Gem converter used by the site's Convert section."""
+    if request.method == "OPTIONS":
+        return "", 204
+
+    payload = request.get_json(force=True, silent=True) or {}
+    try:
+        user_id = int(payload.get("user_id"))
+        amount = float(payload.get("amount"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "Invalid request."}), 400
+
+    direction = payload.get("direction")  # "coins_to_gems" | "gems_to_coins"
+    if amount <= 0:
+        return jsonify({"ok": False, "message": "Amount must be positive."}), 400
+
+    if direction == "coins_to_gems":
+        amount = int(amount)
+        if not bomb_has_enough(user_id, "coins", amount):
+            return jsonify({"ok": False, "message": "Not enough coins."}), 400
+        bomb_deduct(user_id, "coins", amount)
+        users_db.update_one({"user_id": user_id}, {"$inc": {"gems": amount / GEM_COIN_VALUE}}, upsert=True)
+    elif direction == "gems_to_coins":
+        data = users_db.find_one({"user_id": user_id}) or {}
+        if data.get("gems", 0.0) < amount - 1e-9:
+            return jsonify({"ok": False, "message": "Not enough gems."}), 400
+        coins_gained = int(round(amount * GEM_COIN_VALUE))
+        users_db.update_one(
+            {"user_id": user_id},
+            {"$inc": {"gems": -amount, "coins": coins_gained}},
+            upsert=True,
+        )
+    else:
+        return jsonify({"ok": False, "message": "Invalid direction."}), 400
 
     return jsonify({"ok": True, "profile": get_profile_dict(user_id)})
 
@@ -440,6 +633,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         upsert=True
     )
 
+    # ---- Web-login deep link: /start weblogin_<token> ----
+    # The shop site sends people here via t.me/<bot>?start=weblogin_<token>.
+    # If that's what happened, confirm the login and hand them a shop button
+    # instead of the normal greeting below.
+    if context.args and context.args[0].startswith("weblogin_"):
+        token = context.args[0][len("weblogin_"):]
+        session = login_sessions_db.find_one({"token": token, "status": "pending"})
+
+        if session:
+            login_sessions_db.update_one(
+                {"token": token},
+                {"$set": {"status": "done", "user_id": user.id}},
+            )
+            keyboard = [[InlineKeyboardButton("🛍 Open Shop", url=SHOP_URL)]]
+            await update.message.reply_text(
+                "✅ <b>Login successful!</b>\n\nNow you can purchase anything you want.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
+        else:
+            await update.message.reply_text(
+                "⚠️ This login link has expired. Go back to the shop site and tap login again."
+            )
+        return
+
     mention = f'<a href="tg://user?id={user.id}">{user.first_name}</a>'
 
     text = f"""
@@ -462,6 +680,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("📢 𝐔𝐩𝐝𝐚𝐭𝐞𝐬", url=UPDATES_LINK),
             InlineKeyboardButton("👥 𝐂𝐨𝐦𝐦𝐮𝐧𝐢𝐭𝐲", url=GROUP_LINK)
         ],
+        [InlineKeyboardButton("🛍 𝐒𝐡𝐨𝐩", url=SHOP_URL)],
         [InlineKeyboardButton("✨ 𝐀𝐝𝐝 𝐀𝐚𝐫𝐮", switch_inline_query="")]
     ]
 
@@ -470,6 +689,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup(keyboard),
         disable_web_page_preview=True
+    )
+
+
+# ==========================================================
+# /shop COMMAND
+# ==========================================================
+
+async def shop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [[InlineKeyboardButton("🛍 Open Shop", url=SHOP_URL)]]
+    await update.message.reply_text(
+        "Tap below to open the Aaru shop — icons, gems, and gifts.",
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 # ==========================================================
@@ -901,6 +1132,258 @@ async def addpack(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("✅ Custom emoji pack saved.")
 
+
+# ==========================================================
+# /addicon (owner) + /seticon -- the icon-pack double-ID system
+# ==========================================================
+#
+# /addicon <emoji_char> <telegram_custom_emoji_id>  (owner-only)
+#   Adds a real premium custom emoji into the pool that Icon Pack purchases
+#   draw from. Users never see this command or the raw id.
+#
+# /seticon <aaru_id>
+#   Equips an icon the caller actually owns. `aaru_id` is the 6-digit code
+#   they were handed when they bought an Icon Pack -- NOT a real Telegram
+#   custom_emoji_id, so there's nothing here for someone to copy and reuse
+#   on an emoji they were never granted.
+
+async def addicon(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in OWNER_IDS:
+        await update.message.reply_text("You can't use this command.")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Usage:\n<code>/addicon &lt;emoji_char&gt; &lt;custom_emoji_id&gt;</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    emoji_char = context.args[0]
+    emoji_id = context.args[1]
+
+    icon_pool_db.insert_one({
+        "emoji_char": emoji_char,
+        "emoji_id": emoji_id,
+        "added_at": time.time(),
+    })
+
+    await update.message.reply_text("✅ Icon added to the Icon Pack pool.")
+
+
+async def seticon(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+
+    if not context.args:
+        await update.message.reply_text(
+            "Usage:\n<code>/seticon &lt;id&gt;</code>\n\n"
+            "Your icon ID was given to you when you bought an Icon Pack.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    aaru_id = context.args[0].strip()
+    if not aaru_id.isdigit() or len(aaru_id) > 6:
+        await update.message.reply_text("That doesn't look like a valid Aaru icon ID (max 6 digits).")
+        return
+
+    icon = user_icons_db.find_one({"aaru_id": aaru_id, "user_id": user.id})
+    if not icon:
+        await update.message.reply_text("That icon ID isn't yours.")
+        return
+
+    user_icons_db.update_many({"user_id": user.id}, {"$set": {"active": False}})
+    user_icons_db.update_one({"_id": icon["_id"]}, {"$set": {"active": True}})
+
+    users_db.update_one(
+        {"user_id": user.id},
+        {"$set": {
+            "active_icon_char": icon["emoji_char"],
+            "active_icon_emoji_id": icon["emoji_id"],
+        }},
+        upsert=True,
+    )
+
+    await update.message.reply_text(f"{icon['emoji_char']} Icon equipped! Check /pf to see it.")
+
+
+async def myicons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    owned = list(user_icons_db.find({"user_id": user.id}))
+
+    if not owned:
+        await update.message.reply_text("You don't own any icons yet. Grab one from /shop.")
+        return
+
+    lines = ["🎨 Your Icons:\n"]
+    for icon in owned:
+        marker = " (equipped)" if icon.get("active") else ""
+        lines.append(f"{icon['emoji_char']}  ID: {icon['aaru_id']}{marker}")
+    lines.append("\nEquip one with /seticon <id>")
+    await update.message.reply_text("\n".join(lines))
+
+# ==========================================================
+# GIFTS
+# ==========================================================
+#
+# /gifts                        -- lists the catalog
+# /gift <name>  (reply to user) -- sends a gift, deducts price from sender
+# /addgift <name> <emoji_id>    -- owner-only, attaches a premium custom
+#                                   emoji to an existing gift. Uses the same
+#                                   hidden-ID pattern as icons: the real
+#                                   custom_emoji_id is stored server-side
+#                                   only, resolved by `key`, never exposed.
+
+async def gifts_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lines = ["📦 Aᴠᴀɪʟᴀʙʟᴇ Gɪꜰᴛ Iᴛᴇᴍꜱ:\n"]
+    for g in GIFT_ITEMS:
+        lines.append(f"{g['emoji']} {sc(g['name'])} — {g['price']}Z")
+    lines.append("\n👉 Sᴇɴᴅ ᴏɴᴇ: ʀᴇᴘʟʏ ᴛᴏ ꜱᴏᴍᴇᴏɴᴇ ᴡɪᴛʜ /gift <name>")
+    await update.message.reply_text("\n".join(lines))
+
+
+async def addgift(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in OWNER_IDS:
+        await update.message.reply_text("You can't use this command.")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Usage:\n<code>/addgift &lt;name&gt; &lt;custom_emoji_id&gt;</code>\n\n"
+            "&lt;name&gt; must match a key from /gifts (e.g. rose, ring, bmw).",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    key = context.args[0].lower()
+    emoji_id = context.args[1]
+
+    gift = next((g for g in GIFT_ITEMS if g["key"] == key), None)
+    if not gift:
+        await update.message.reply_text("Unknown gift name. Check /gifts for valid keys.")
+        return
+
+    aaru_id = generate_unique_aaru_id()
+    gift_catalog_db.update_one(
+        {"key": key},
+        {"$set": {
+            "key": key,
+            "emoji_id": emoji_id,
+            "emoji_char": gift["emoji"],
+            "aaru_id": aaru_id,
+        }},
+        upsert=True,
+    )
+
+    await update.message.reply_text(f"✅ Premium version saved for '{gift['name']}' (internal id {aaru_id}).")
+
+
+async def send_gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    sender = update.effective_user
+
+    if not update.message.reply_to_message or not update.message.reply_to_message.from_user:
+        await update.message.reply_text("Reply to the person you want to send a gift to.\n\nUsage: /gift <name>")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Usage:\n/gift <name>\n\nSee /gifts for the full list.")
+        return
+
+    recipient = update.message.reply_to_message.from_user
+    if recipient.id == sender.id:
+        await update.message.reply_text("You can't gift yourself.")
+        return
+
+    key = context.args[0].lower()
+    gift = next((g for g in GIFT_ITEMS if g["key"] == key), None)
+    if not gift:
+        await update.message.reply_text("Unknown gift. Check /gifts for valid names.")
+        return
+
+    if sender.id not in OWNER_IDS:
+        if not bomb_has_enough(sender.id, "coins", gift["price"]):
+            await update.message.reply_text(f"You need {gift['price']}Z to send a {gift['name']}.")
+            return
+        bomb_deduct(sender.id, "coins", gift["price"])
+
+    premium = gift_catalog_db.find_one({"key": key})
+
+    text = f"{sender.first_name} sent a {gift['name']} to {recipient.first_name}! "
+    entities = []
+
+    if premium:
+        # Premium gifts render via their real custom_emoji_id -- the raw id
+        # is never exposed to users, only referenced internally by `key`.
+        offset = utf16_len(text)
+        text += premium["emoji_char"]
+        entities.append(
+            MessageEntity(
+                type=MessageEntityType.CUSTOM_EMOJI,
+                offset=offset,
+                length=utf16_len(premium["emoji_char"]),
+                custom_emoji_id=premium["emoji_id"],
+            )
+        )
+    else:
+        text += gift["emoji"]
+
+    await update.message.reply_text(text, entities=entities or None)
+
+# ==========================================================
+# /convert  -- Z <-> Gem converter
+# ==========================================================
+
+async def convert_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+
+    if len(context.args) != 2:
+        await update.message.reply_text(
+            "Usage:\n<code>/convert coins &lt;amount&gt;</code> — Z ➜ Gems\n"
+            "<code>/convert gems &lt;amount&gt;</code> — Gems ➜ Z\n\n"
+            f"Rate: {GEM_COIN_VALUE:,}Z = 1 Gem",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    mode = context.args[0].lower()
+    try:
+        amount = float(context.args[1])
+    except ValueError:
+        await update.message.reply_text("Amount must be a number.")
+        return
+
+    if amount <= 0:
+        await update.message.reply_text("Enter a positive amount.")
+        return
+
+    if mode == "coins":
+        amount = int(amount)
+        if not bomb_has_enough(user.id, "coins", amount):
+            await update.message.reply_text("You don't have enough coins.")
+            return
+        bomb_deduct(user.id, "coins", amount)
+        gems_gained = amount / GEM_COIN_VALUE
+        users_db.update_one({"user_id": user.id}, {"$inc": {"gems": gems_gained}}, upsert=True)
+        await update.message.reply_text(f"✅ Converted {amount:,}Z ➜ {gems_gained:.2f} gems.")
+
+    elif mode == "gems":
+        data = users_db.find_one({"user_id": user.id}) or {}
+        if data.get("gems", 0.0) < amount - 1e-9:
+            await update.message.reply_text("You don't have enough gems.")
+            return
+        coins_gained = int(round(amount * GEM_COIN_VALUE))
+        users_db.update_one(
+            {"user_id": user.id},
+            {"$inc": {"gems": -amount, "coins": coins_gained}},
+            upsert=True,
+        )
+        await update.message.reply_text(f"✅ Converted {amount:g} gems ➜ {coins_gained:,}Z.")
+
+    else:
+        await update.message.reply_text("Use 'coins' or 'gems' as the first argument.")
+
 # ==========================================================
 # /chat (group AI toggle)
 # ==========================================================
@@ -932,7 +1415,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Use /chat on or /chat off.")
 
 # ==========================================================
-# /pf PROFILE COMMAND  (now supports replying to someone else)
+# /pf PROFILE COMMAND  (now supports replying to someone else + equipped icon)
 # ==========================================================
 
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -948,6 +1431,7 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gems = data.get("gems", 0)
     streak = data.get("streak", 0)
     name = target_user.first_name
+    active_icon_id = data.get("active_icon_emoji_id")
 
     text = (
         f":icon: Nᴀᴍᴇ : {name}\n"
@@ -957,6 +1441,28 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     reply, entities = convert_premium_emojis(text)
+
+    # Prefix their equipped custom Aaru icon (real premium emoji), if any.
+    if active_icon_id:
+        icon_char = data.get("active_icon_char", "✨")
+        prefix = icon_char + " "
+        shift = utf16_len(prefix)
+        entities = [
+            MessageEntity(
+                type=e.type,
+                offset=e.offset + shift,
+                length=e.length,
+                custom_emoji_id=e.custom_emoji_id,
+            )
+            for e in entities
+        ]
+        entities.insert(0, MessageEntity(
+            type=MessageEntityType.CUSTOM_EMOJI,
+            offset=0,
+            length=utf16_len(icon_char),
+            custom_emoji_id=active_icon_id,
+        ))
+        reply = prefix + reply
 
     idx = reply.index(name)
     entities.append(
@@ -1069,6 +1575,8 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #   still specified in Z (e.g. `/bomb 501 2 gems`), and is converted to a
 #   gem fraction internally: gems_delta = amount_in_Z / GEM_COIN_VALUE.
 #   Payouts/refunds always use the SAME conversion so balances stay in sync.
+#   This same coins/gems abstraction now also backs the shop, /convert and
+#   /gift, so a single Z-denominated price works in either currency.
 #
 # * Per-holder timer: recalculated every time a new holder receives the
 #   bomb, based on CURRENT alive player count (see BOMB_COUNTDOWN_TABLE).
@@ -1829,6 +2337,7 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("shop", shop_cmd))
     app.add_handler(CommandHandler("ludo", ludo))
     app.add_handler(CommandHandler("f", font))
     app.add_handler(CommandHandler("eid", eid))
@@ -1836,6 +2345,19 @@ def main():
     app.add_handler(CommandHandler("chat", chat))
     app.add_handler(CommandHandler("pf", profile))
     app.add_handler(CommandHandler("daily", daily))
+
+    # Icons (Icon Pack purchases + double-ID equip system)
+    app.add_handler(CommandHandler("addicon", addicon))
+    app.add_handler(CommandHandler("seticon", seticon))
+    app.add_handler(CommandHandler("myicons", myicons))
+
+    # Gifts
+    app.add_handler(CommandHandler("gifts", gifts_list))
+    app.add_handler(CommandHandler("gift", send_gift))
+    app.add_handler(CommandHandler("addgift", addgift))
+
+    # Coin <-> Gem conversion
+    app.add_handler(CommandHandler("convert", convert_cmd))
 
     # Bomb Game
     app.add_handler(CommandHandler("bomb", bomb_start))
