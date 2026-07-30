@@ -1,10 +1,14 @@
 import os
 import io
 import hmac
+import base64
 import hashlib
 import random
 import time
+import uuid
 import asyncio
+
+import requests
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -103,6 +107,7 @@ games_db = db["games"]
 settings_db = db["settings"]
 chat_settings = db["chat_settings"]
 groups_db = db["groups"]  # tracks every group the bot has seen, for /stats
+gem_orders_db = db["gem_orders"]  # tracks Cashfree gem-purchase orders
 
 # ==========================
 # ECONOMY DEFAULTS
@@ -140,6 +145,12 @@ GEM_INR_PRICE = 15  # ₹ per gem
 GEM_BUNDLES = [1, 5, 10, 25]
 CASHFREE_APP_ID = os.getenv("CASHFREE_APP_ID")
 CASHFREE_SECRET_KEY = os.getenv("CASHFREE_SECRET_KEY")
+CASHFREE_ENV = os.getenv("CASHFREE_ENV", "sandbox")  # "sandbox" or "production"
+CASHFREE_BASE = (
+    "https://sandbox.cashfree.com/pg" if CASHFREE_ENV == "sandbox"
+    else "https://api.cashfree.com/pg"
+)
+SHOP_RETURN_URL = os.getenv("SHOP_RETURN_URL", "https://aarushop.oneapp.dev/gems/return?order_id={order_id}")
 
 
 def check_telegram_login(payload: dict) -> bool:
@@ -176,6 +187,8 @@ def get_profile_dict(user_id: int, fallback_name: str = "") -> dict:
         "gems": round(doc.get("gems", 0.0), 2),
         "streak": doc.get("streak", 0),
         "xp": doc.get("xp", 0),
+        "inventory": doc.get("inventory", []),
+        "is_owner": user_id in OWNER_IDS,
     }
 
 
@@ -218,16 +231,81 @@ def api_shop_items():
     })
 
 
-@keep_alive_app.route("/api/gems/create-order", methods=["POST", "OPTIONS"])
-def api_create_gem_order():
+@keep_alive_app.route("/api/shop/buy", methods=["POST", "OPTIONS"])
+def api_shop_buy():
     """
-    Stub for the Cashfree order-creation call. Once CASHFREE_APP_ID /
-    CASHFREE_SECRET_KEY are set, this should call Cashfree's Orders API and
-    return the payment_session_id the frontend needs to launch checkout.
-    Left unconfigured on purpose until the Cashfree account is ready.
+    Coin-priced purchases (icons, boosts). Owners (OD1/OD2) get every item
+    for free, instantly, no coin deduction -- everyone else needs enough
+    coins, deducted atomically so nobody can overspend by double-clicking.
     """
     if request.method == "OPTIONS":
         return "", 204
+
+    payload = request.get_json(force=True, silent=True) or {}
+    try:
+        user_id = int(payload.get("user_id"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "Invalid user."}), 400
+
+    item_id = payload.get("item_id")
+    item = next((i for i in SHOP_ITEMS if i["id"] == item_id), None)
+    if item is None:
+        return jsonify({"ok": False, "message": "Unknown item."}), 400
+
+    # Make sure the user has a document to work with.
+    users_db.update_one(
+        {"user_id": user_id},
+        {"$setOnInsert": {"coins": 0, "gems": 0, "streak": 0, "xp": 0, "inventory": []}},
+        upsert=True,
+    )
+
+    if user_id in OWNER_IDS:
+        users_db.update_one({"user_id": user_id}, {"$addToSet": {"inventory": item_id}})
+        return jsonify({"ok": True, "owner_bonus": True, "profile": get_profile_dict(user_id)})
+
+    doc = users_db.find_one({"user_id": user_id}) or {}
+    if item_id in doc.get("inventory", []):
+        return jsonify({"ok": False, "message": "You already own this item."}), 400
+
+    result = users_db.update_one(
+        {"user_id": user_id, "coins": {"$gte": item["price"]}},
+        {"$inc": {"coins": -item["price"]}, "$addToSet": {"inventory": item_id}},
+    )
+    if result.modified_count == 0:
+        return jsonify({"ok": False, "message": "Not enough coins."}), 400
+
+    return jsonify({"ok": True, "profile": get_profile_dict(user_id)})
+
+
+@keep_alive_app.route("/api/gems/create-order", methods=["POST", "OPTIONS"])
+def api_create_gem_order():
+    """
+    Owners (OD1/OD2) get gems credited instantly, free -- no Cashfree call.
+    Everyone else gets a real Cashfree order; gems are only credited once
+    /api/gems/webhook confirms the payment actually succeeded.
+    """
+    if request.method == "OPTIONS":
+        return "", 204
+
+    payload = request.get_json(force=True, silent=True) or {}
+    try:
+        user_id = int(payload.get("user_id"))
+        gems = int(payload.get("gems", 0))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "Invalid request."}), 400
+
+    if gems <= 0:
+        return jsonify({"ok": False, "message": "Invalid gem amount."}), 400
+
+    users_db.update_one(
+        {"user_id": user_id},
+        {"$setOnInsert": {"coins": 0, "gems": 0, "streak": 0, "xp": 0, "inventory": []}},
+        upsert=True,
+    )
+
+    if user_id in OWNER_IDS:
+        users_db.update_one({"user_id": user_id}, {"$inc": {"gems": gems}})
+        return jsonify({"ok": True, "owner_bonus": True, "profile": get_profile_dict(user_id)})
 
     if not (CASHFREE_APP_ID and CASHFREE_SECRET_KEY):
         return jsonify({
@@ -236,8 +314,94 @@ def api_create_gem_order():
             "message": "Gem purchases aren't live yet — check back soon!",
         }), 503
 
-    # TODO: real Cashfree order creation goes here once keys are configured.
-    return jsonify({"ok": False, "error": "not_implemented"}), 501
+    amount = gems * GEM_INR_PRICE
+    order_id = f"gems_{user_id}_{uuid.uuid4().hex[:10]}"
+
+    try:
+        resp = requests.post(
+            f"{CASHFREE_BASE}/orders",
+            headers={
+                "x-client-id": CASHFREE_APP_ID,
+                "x-client-secret": CASHFREE_SECRET_KEY,
+                "x-api-version": "2023-08-01",
+                "Content-Type": "application/json",
+            },
+            json={
+                "order_id": order_id,
+                "order_amount": amount,
+                "order_currency": "INR",
+                "customer_details": {
+                    "customer_id": str(user_id),
+                    "customer_phone": "9999999999",  # replace with a real captured phone if you collect one
+                },
+                "order_meta": {"return_url": SHOP_RETURN_URL},
+                "order_note": f"{gems} gems for user {user_id}",
+            },
+            timeout=15,
+        )
+        data = resp.json()
+    except Exception:
+        return jsonify({"ok": False, "message": "Could not reach the payment provider."}), 502
+
+    if "payment_session_id" not in data:
+        return jsonify({"ok": False, "message": data.get("message", "Order creation failed.")}), 502
+
+    gem_orders_db.insert_one({
+        "order_id": order_id,
+        "user_id": user_id,
+        "gems": gems,
+        "amount": amount,
+        "status": "created",
+        "created_at": time.time(),
+    })
+
+    return jsonify({
+        "ok": True,
+        "payment_session_id": data["payment_session_id"],
+        "mode": "sandbox" if CASHFREE_ENV == "sandbox" else "production",
+    })
+
+
+@keep_alive_app.route("/api/gems/webhook", methods=["POST"])
+def api_gems_webhook():
+    """
+    Cashfree calls this after a payment attempt. Gems are ONLY credited here,
+    never from the frontend, so a user can't fake a successful payment by
+    calling the API directly. Verifies the signature per Cashfree's docs:
+    https://www.cashfree.com/docs/payments/online/webhooks/verify
+    """
+    signature = request.headers.get("x-webhook-signature", "")
+    timestamp = request.headers.get("x-webhook-timestamp", "")
+    raw_body = request.get_data(as_text=True)
+
+    if not (CASHFREE_SECRET_KEY and signature and timestamp):
+        return jsonify({"ok": False}), 400
+
+    computed = base64.b64encode(
+        hmac.new(
+            CASHFREE_SECRET_KEY.encode(),
+            (timestamp + raw_body).encode(),
+            hashlib.sha256,
+        ).digest()
+    ).decode()
+
+    if not hmac.compare_digest(computed, signature):
+        return jsonify({"ok": False, "error": "invalid_signature"}), 401
+
+    event = request.get_json(force=True, silent=True) or {}
+    order_id = event.get("data", {}).get("order", {}).get("order_id")
+    payment_status = event.get("data", {}).get("payment", {}).get("payment_status")
+
+    if not order_id or payment_status != "SUCCESS":
+        return jsonify({"ok": True})  # acknowledge, nothing to credit yet
+
+    order = gem_orders_db.find_one({"order_id": order_id, "status": "created"})
+    if not order:
+        return jsonify({"ok": True})  # already processed or unknown order
+
+    users_db.update_one({"user_id": order["user_id"]}, {"$inc": {"gems": order["gems"]}})
+    gem_orders_db.update_one({"order_id": order_id}, {"$set": {"status": "paid"}})
+    return jsonify({"ok": True})
 
 # ==========================
 # BOMB GAME CONFIG
