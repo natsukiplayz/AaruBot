@@ -1,4 +1,5 @@
 import os
+import io
 import random
 import time
 import asyncio
@@ -8,6 +9,8 @@ from zoneinfo import ZoneInfo
 from pymongo import MongoClient
 from mistralai import Mistral
 
+from PIL import Image, ImageDraw, ImageFont
+
 from telegram.constants import ChatAction
 
 from telegram import (
@@ -16,6 +19,7 @@ from telegram import (
     InlineKeyboardMarkup,
     WebAppInfo,
     MessageEntity,
+    InputFile,
 )
 
 from telegram.constants import (
@@ -70,6 +74,9 @@ GROUP_LINK = "https://t.me/Uchiha_ClaniX"
 DEVELOPER_USERNAME = "ig_yuuki"
 SUPPORT_USERNAME = "Ig_Jinn"
 
+# Process start time, used for /stats uptime.
+BOT_START_TIME = time.time()
+
 # ==========================
 # MONGODB
 # ==========================
@@ -80,11 +87,10 @@ users_db = db["users"]
 games_db = db["games"]
 settings_db = db["settings"]
 chat_settings = db["chat_settings"]
-groups_db = db["groups"]  # NEW: tracks every group the bot has seen, for /stats
+groups_db = db["groups"]  # tracks every group the bot has seen, for /stats
 
 # ==========================
 # ECONOMY DEFAULTS
-# (shop/icon prices, gem rules -- more will be added later)
 # ==========================
 DAILY_COINS = 1000
 DAILY_XP = 50
@@ -92,7 +98,6 @@ STARTING_STREAK_CAP = 10
 STREAK_CAP_INCREMENT = 5
 GEM_EVERY_STREAK = 5
 
-# reserved for future shop/gem features
 GEM_COIN_VALUE = 15000       # 1 gem = 15k coins (Z)
 GEM_TRANSFER_FEE = 10000     # cost to transfer a single gem
 MAX_GEM_USE_PER_DAY = 5
@@ -113,12 +118,13 @@ BOMB_FEE_PERCENT = 0.05          # 5% game fee
 BOMB_WIN_XP = 80
 
 # alive_players -> per-holder countdown (seconds) before it explodes in their hands
+# NOTE: every tier below has been bumped by +10s from the original design.
 BOMB_COUNTDOWN_TABLE = [
-    (8, 10),   # 8+ players -> 10s
-    (6, 8),    # 6-7 players -> 8s
-    (4, 5),    # 4-5 players -> 5s
-    (3, 3),    # 3 players -> 3s
-    (2, 2),    # 2 players -> 2s
+    (8, 20),   # 8+ players -> 20s
+    (6, 18),   # 6-7 players -> 18s
+    (4, 15),   # 4-5 players -> 15s
+    (3, 13),   # 3 players -> 13s
+    (2, 12),   # 2 players -> 12s
 ]
 
 # In-memory runtime state (per-process). A restart clears any running bomb games.
@@ -317,6 +323,8 @@ EMOJI_MAP = {
     ":Boom:": ("💥", "5276032951342088188"),
     ":lock:": ("🔒", "5296369303661067030"),
     ":active:": ("🤍", "5202218878888850186"),
+    ":crown:": ("👑", "5309984423003823537"),
+    ":players:": ("👥", "5312383351424157472"),
 }
 
 NORMAL_TO_PLACEHOLDER = {
@@ -359,6 +367,7 @@ NORMAL_TO_PLACEHOLDER = {
     "💥": ":Boom:",
     "🔒": ":lock:",
     "🤍": ":active:",
+    "👑": ":crown:",
 }
 
 # The subset of placeholders Aaru's persona is actually allowed to use in
@@ -412,9 +421,6 @@ def convert_premium_emojis(text):
 def limit_persona_emojis(text: str, max_emojis: int = MAX_PERSONA_EMOJIS_PER_REPLY) -> str:
     """
     Hard cap on how many persona emoji placeholders can appear in one AI reply.
-    This is a code-level backstop -- the system prompt already asks for at
-    most 2, but models don't always follow instructions perfectly, so any
-    placeholder occurrence beyond the cap gets stripped out here.
     """
     kept = 0
     i = 0
@@ -430,7 +436,6 @@ def limit_persona_emojis(text: str, max_emojis: int = MAX_PERSONA_EMOJIS_PER_REP
             if kept < max_emojis:
                 result += matched_placeholder
                 kept += 1
-            # else: drop this extra emoji placeholder entirely
             i += len(matched_placeholder)
         else:
             result += text[i]
@@ -514,12 +519,8 @@ If nothing new:
 
         reply = response.choices[0].message.content
 
-        # remove stray asterisks just in case the model slips
         reply = reply.replace("*", "")
 
-        # ==========================
-        # EXTRACT MEMORY DATA
-        # ==========================
         if DATA_MARKER in reply:
             answer, data = reply.split(DATA_MARKER, 1)
             reply = answer.strip()
@@ -544,8 +545,6 @@ If nothing new:
         for emoji, placeholder in NORMAL_TO_PLACEHOLDER.items():
             reply = reply.replace(emoji, placeholder)
 
-        # HARD CAP: never let more than MAX_PERSONA_EMOJIS_PER_REPLY placeholders through,
-        # regardless of what the model actually generated.
         reply = limit_persona_emojis(reply)
 
         return reply
@@ -637,17 +636,22 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Use /chat on or /chat off.")
 
 # ==========================================================
-# /pf PROFILE COMMAND
+# /pf PROFILE COMMAND  (now supports replying to someone else)
 # ==========================================================
 
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    data = users_db.find_one({"user_id": user.id}) or {}
+    # If this command is a reply to someone, show THAT person's profile.
+    if update.message.reply_to_message and update.message.reply_to_message.from_user:
+        target_user = update.message.reply_to_message.from_user
+    else:
+        target_user = update.effective_user
+
+    data = users_db.find_one({"user_id": target_user.id}) or {}
 
     coins = data.get("coins", 0)
     gems = data.get("gems", 0)
     streak = data.get("streak", 0)
-    name = user.first_name
+    name = target_user.first_name
 
     text = (
         f":icon: Nᴀᴍᴇ : {name}\n"
@@ -664,7 +668,7 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
             type=MessageEntityType.TEXT_LINK,
             offset=utf16_len(reply[:idx]),
             length=utf16_len(name),
-            url=f"tg://user?id={user.id}",
+            url=f"tg://user?id={target_user.id}",
         )
     )
 
@@ -750,7 +754,7 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ============================================================
 # ============================================================
-#                    BOMB GAME SYSTEM  (NEW)
+#                    BOMB GAME SYSTEM
 # ============================================================
 # ============================================================
 #
@@ -772,10 +776,12 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #
 # * Per-holder timer: recalculated every time a new holder receives the
 #   bomb, based on CURRENT alive player count (see BOMB_COUNTDOWN_TABLE).
-#   If the holder doesn't /pass before it runs out -> they explode. This is
-#   the single source of truth for "when does someone explode" -- there's
-#   no separate master round timer (your spec described two different
-#   timers that conflicted; merging them into one avoids that).
+#   If the holder doesn't /pass before it runs out -> they explode.
+#
+# * Joining now requires /join <amount> <players> <coins/gems>, matching the
+#   host's original bet exactly. This is a confirmation step so nobody joins
+#   the wrong stake by accident. The amount is deducted from their profile
+#   the instant the join succeeds.
 
 
 def get_bomb_countdown(alive_count: int) -> int:
@@ -837,6 +843,66 @@ def track_group(chat):
 async def bomb_send(chat_id, context, text):
     reply, entities = convert_premium_emojis(text)
     await context.bot.send_message(chat_id, reply, entities=entities)
+
+
+# ---------------- avatar helpers (Pillow fallback) ----------------
+
+AVATAR_COLORS = ["#4A90D9", "#3E8E58", "#C9772F", "#8E5BAF", "#C0392B", "#1B9E8C"]
+
+
+def generate_avatar_image(name: str) -> io.BytesIO:
+    """Builds a simple initials avatar for users without a Telegram profile photo."""
+    initial = (name.strip()[0].upper() if name and name.strip() else "?")
+    color = random.choice(AVATAR_COLORS)
+
+    img = Image.new("RGB", (512, 512), color)
+    draw = ImageDraw.Draw(img)
+
+    font_obj = None
+    for font_path in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ):
+        try:
+            font_obj = ImageFont.truetype(font_path, 240)
+            break
+        except Exception:
+            continue
+    if font_obj is None:
+        font_obj = ImageFont.load_default()
+
+    bbox = draw.textbbox((0, 0), initial, font=font_obj)
+    w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    draw.text(
+        ((512 - w) / 2 - bbox[0], (512 - h) / 2 - bbox[1]),
+        initial,
+        fill="white",
+        font=font_obj,
+    )
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    buf.name = "avatar.png"
+    return buf
+
+
+async def get_avatar_bytes(user_id: int, name: str, bot) -> io.BytesIO:
+    """Real Telegram profile photo if the user has one, otherwise a generated avatar."""
+    try:
+        photos = await bot.get_user_profile_photos(user_id, limit=1)
+        if photos and photos.total_count > 0:
+            file_id = photos.photos[0][-1].file_id
+            tg_file = await bot.get_file(file_id)
+            buf = io.BytesIO()
+            await tg_file.download_to_memory(out=buf)
+            buf.seek(0)
+            buf.name = "avatar.png"
+            return buf
+    except Exception:
+        pass
+
+    return generate_avatar_image(name)
 
 
 # ---------------- /bomb ----------------
@@ -927,12 +993,10 @@ async def bomb_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game["join_task"] = asyncio.create_task(bomb_join_timeout(chat.id, context))
 
     text = (
-        ":bomb: Bᴏᴍʙ Gᴀᴍᴇ Cʀᴇᴀᴛᴇᴅ\n\n"
-        f":Host: Hᴏꜱᴛ\n{user.first_name}\n\n"
-        f":coins: Bᴇᴛ\n{amount} Z ({currency})\n\n"
-        f"👥 Pʟᴀʏᴇʀꜱ\n1/{required_players}\n\n"
-        f"⏳ Sᴛᴀʀᴛꜱ Iɴ\n2 Mɪɴᴜᴛᴇꜱ\n\n"
-        ":next: Jᴏɪɴ Uꜱɪɴɢ\n/join"
+        ":bomb: Bᴏᴍʙ Gᴀᴍᴇ Sᴛᴀʀᴛᴇᴅ\n\n"
+        f":coins: Eɴᴛʀʏ Fᴇᴇ: {amount}\n"
+        f":players: Pʟᴀʏᴇʀꜱ: Mᴀx {required_players} Pʟᴀʏᴇʀꜱ\n"
+        f":next: Uꜱᴇ: /join {amount} {required_players} {currency}"
     )
     await bomb_send(chat.id, context, text)
 
@@ -958,7 +1022,7 @@ async def bomb_cancel_refund(chat_id, context):
     )
 
 
-# ---------------- /join ----------------
+# ---------------- /join <amount> <players> <coins/gems> ----------------
 
 async def bomb_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -971,6 +1035,37 @@ async def bomb_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game = ACTIVE_BOMB_GAMES.get(chat.id)
     if not game or game["status"] != "waiting":
         await update.message.reply_text("No Bomb Game is currently waiting for players here.")
+        return
+
+    args = context.args
+    if len(args) != 3:
+        await update.message.reply_text(
+            "Usage:\n<code>/join {amount} {players} {currency}</code>\n\n"
+            "Match this game's exact stake to join.".format(
+                amount=game["amount"],
+                players=game["required_players"],
+                currency=game["currency"],
+            ),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    try:
+        join_amount = int(args[0])
+        join_players = int(args[1])
+    except ValueError:
+        await update.message.reply_text("Amount and players must be whole numbers.")
+        return
+
+    join_currency = args[2].lower()
+
+    if (join_amount != game["amount"] or join_players != game["required_players"]
+            or join_currency != game["currency"]):
+        await update.message.reply_text(
+            "That doesn't match this game's stake.\n\n"
+            f"Use: <code>/join {game['amount']} {game['required_players']} {game['currency']}</code>",
+            parse_mode=ParseMode.HTML,
+        )
         return
 
     if user.id in PLAYER_ACTIVE_GAME:
@@ -989,6 +1084,7 @@ async def bomb_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"You don't have enough {game['currency']} to join.")
         return
 
+    # Deducted from their profile instantly on join.
     bomb_deduct(user.id, game["currency"], game["amount"])
     game["players"].append({"id": user.id, "name": user.first_name, "alive": True, "warnings": 0})
     PLAYER_ACTIVE_GAME[user.id] = chat.id
@@ -1092,19 +1188,80 @@ async def bomb_finish(chat_id, context):
     )
     winner_data = users_db.find_one({"user_id": winner["id"]}) or {}
     bomb_streak = winner_data.get("bomb_streak", 1)
+    streak_target = ((bomb_streak // 5) + 1) * 5  # next streak milestone, purely cosmetic
+    flavor_points = random.randint(20, 99)
 
-    players_list = "\n".join(p["name"] for p in game["players"])
-
-    text = (
-        ":win: Bᴏᴍʙ Gᴀᴍᴇ Wɪɴɴᴇʀ\n\n"
-        f":Host: {winner['name']}\n\n"
-        f":coins: Wᴏɴ\n{int(round(payout)):,} Z\n({int(BOMB_FEE_PERCENT * 100)}% Fee)\n\n"
-        f":xp: XP\n+{BOMB_WIN_XP}\n\n"
-        f":streak: Sᴛʀᴇᴀᴋ\n{bomb_streak}\n\n"
-        f"👥 Pʟᴀʏᴇʀꜱ\n{players_list}\n\n"
-        f":next: Pʟᴀʏ Aɢᴀɪɴ\n/bomb {game['amount']} {len(game['players'])} {game['currency']}"
+    # Build caption with custom emoji placeholders + a text link for the winner + each member.
+    caption_text = (
+        ":crown: Fɪɴᴀʟ Wɪɴɴᴇʀ(ꜱ) :crown:\n\n"
+        f":icon: {winner['name']}\n"
+        f"Pᴏɪɴᴛꜱ: {flavor_points}\n"
+        f":coins: Wᴏɴ: {int(round(payout)):,} (:icon: {int(BOMB_FEE_PERCENT * 100)}% Fᴇᴇ)\n"
+        f":streak: Sᴛʀᴇᴀᴋ: {bomb_streak}/{streak_target}\n"
+        f":xp: Xᴘ Gᴀɪɴᴇᴅ: +{BOMB_WIN_XP}\n\n"
+        f":players: Mᴇᴍʙᴇʀꜱ: "
     )
-    await bomb_send(chat_id, context, text)
+
+    caption, entities = convert_premium_emojis(caption_text)
+
+    # winner name link
+    winner_idx = caption.rindex(winner["name"])
+    entities.append(
+        MessageEntity(
+            type=MessageEntityType.TEXT_LINK,
+            offset=utf16_len(caption[:winner_idx]),
+            length=utf16_len(winner["name"]),
+            url=f"tg://user?id={winner['id']}",
+        )
+    )
+
+    # members list, each name text-linked to their profile
+    member_parts = []
+    for p in game["players"]:
+        member_parts.append(p)
+
+    for i, p in enumerate(member_parts):
+        prefix = ", " if i > 0 else ""
+        caption += prefix
+        name_offset = utf16_len(caption)
+        caption += p["name"]
+        entities.append(
+            MessageEntity(
+                type=MessageEntityType.TEXT_LINK,
+                offset=name_offset,
+                length=utf16_len(p["name"]),
+                url=f"tg://user?id={p['id']}",
+            )
+        )
+
+    caption += (
+        f"\n\n:next: Pʟᴀʏ Aɢᴀɪɴ Uꜱɪɴɢ: /bomb {game['amount']} {len(game['players'])} {game['currency']}"
+    )
+    # re-run emoji conversion just on the trailing bit we appended after the loop
+    tail_start = len(caption) - len(
+        f"\n\n:next: Pʟᴀʏ Aɢᴀɪɴ Uꜱɪɴɢ: /bomb {game['amount']} {len(game['players'])} {game['currency']}"
+    )
+    tail_converted, tail_entities = convert_premium_emojis(caption[tail_start:])
+    tail_offset = utf16_len(caption[:tail_start])
+    for ent in tail_entities:
+        entities.append(
+            MessageEntity(
+                type=ent.type,
+                offset=ent.offset + tail_offset,
+                length=ent.length,
+                custom_emoji_id=ent.custom_emoji_id,
+            )
+        )
+    caption = caption[:tail_start] + tail_converted
+
+    avatar = await get_avatar_bytes(winner["id"], winner["name"], context.bot)
+
+    await context.bot.send_photo(
+        chat_id=chat_id,
+        photo=InputFile(avatar, filename="winner.png"),
+        caption=caption,
+        caption_entities=entities,
+    )
 
 
 # ---------------- /pass ----------------
@@ -1151,7 +1308,7 @@ async def bomb_pass(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================
-#              LOCKING / STATS / PING COMMANDS  (NEW)
+#              LOCKING / STATS / PING COMMANDS
 # ============================================================
 
 async def lock_global_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1227,9 +1384,6 @@ async def active_minigames_cmd(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     bomb_count = len(ACTIVE_BOMB_GAMES)
-    # Ludo runs in the separate WebApp (aarubot.onrender.com); this bot process
-    # has no visibility into how many are active there unless that service
-    # exposes its own API for this bot to query.
     text = (
         ":active: Aᴄᴛɪᴠᴇ Gᴀᴍᴇꜱ\n\n"
         f"MGames: {bomb_count}\n"
@@ -1239,8 +1393,36 @@ async def active_minigames_cmd(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(reply, entities=entities)
 
 
+def format_uptime(seconds: float) -> str:
+    seconds = int(seconds)
+    years, rem = divmod(seconds, 31536000)
+    months, rem = divmod(rem, 2592000)
+    days, rem = divmod(rem, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+
+    parts = []
+    if years:
+        parts.append(f"{years}y")
+    if months:
+        parts.append(f"{months}mo")
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    parts.append(f"{secs}s")
+    return " ".join(parts)
+
+
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/stats -- total known users (DM/started bot) + total groups."""
+    """/stats -- owner-only. Total known users, groups, ping, and uptime."""
+    user = update.effective_user
+    if user.id not in OWNER_IDS:
+        await update.message.reply_text("You can't use this command.")
+        return
+
     total_users = users_db.count_documents({})
     total_groups = groups_db.count_documents({})
 
@@ -1248,11 +1430,14 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.get_me()
     latency_ms = (time.perf_counter() - t0) * 1000
 
+    uptime_str = format_uptime(time.time() - BOT_START_TIME)
+
     text = (
         f"Bᴏᴛ Sᴛᴀᴛꜱ\n\n"
         f"Uꜱᴇʀꜱ : {total_users}\n"
         f"Gʀᴏᴜᴘꜱ : {total_groups}\n"
-        f"Pɪɴɢ : {latency_ms:.0f}ms"
+        f"Pɪɴɢ : {latency_ms:.0f}ms\n"
+        f"Uᴘᴛɪᴍᴇ : {uptime_str}"
     )
     await update.message.reply_text(text)
 
