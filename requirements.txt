@@ -13,3 +13,5 @@ simple-websocket
 fastapi
 uvicorn
 jinja2
+flask-cors
+itsdangerous
