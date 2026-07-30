@@ -1,5 +1,7 @@
 import os
 import io
+import hmac
+import hashlib
 import random
 import time
 import asyncio
@@ -36,10 +38,21 @@ from telegram.ext import (
     filters,
 )
 
-from flask import Flask
+from flask import Flask, request, jsonify
 import threading
 
 keep_alive_app = Flask(__name__)
+
+
+@keep_alive_app.after_request
+def add_cors_headers(response):
+    # aaru-shop.html is a separate static page, so it calls this API
+    # cross-origin. Access is gated by Telegram login-widget verification
+    # below, not by CORS, so an open origin here is fine.
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
 
 
 @keep_alive_app.route("/")
@@ -74,6 +87,8 @@ GROUP_LINK = "https://t.me/Uchiha_ClaniX"
 DEVELOPER_USERNAME = "ig_yuuki"
 SUPPORT_USERNAME = "Ig_Jinn"
 
+BOT_USERNAME = "im_aarubot"  # used by the shop site's Telegram Login Widget
+
 # Process start time, used for /stats uptime.
 BOT_START_TIME = time.time()
 
@@ -106,6 +121,123 @@ ICON_PRICES = {
     "icon_2": 30000,
     "icon_3": 40000,
 }
+
+# ==========================
+# SHOP (backs aaru-shop.html)
+# ==========================
+# Coin-priced catalog, shown as-is on the shop site.
+SHOP_ITEMS = [
+    {"id": "icon_1", "name": "Icon Pack I", "category": "icons", "price": ICON_PRICES["icon_1"], "emoji": "⚡️", "description": "A profile icon shown next to your name on /pf."},
+    {"id": "icon_2", "name": "Icon Pack II", "category": "icons", "price": ICON_PRICES["icon_2"], "emoji": "💎", "description": "A rarer profile icon for your card."},
+    {"id": "icon_3", "name": "Icon Pack III", "category": "icons", "price": ICON_PRICES["icon_3"], "emoji": "👑", "description": "The rarest icon currently available."},
+    {"id": "streak_shield", "name": "Streak Shield", "category": "boosts", "price": 8000, "emoji": "🔥", "description": "Protects your /daily streak once if you miss a day."},
+    {"id": "xp_boost_1h", "name": "XP Boost (1h)", "category": "boosts", "price": 5000, "emoji": "📈", "description": "Double XP from /daily and Bomb wins for 1 hour."},
+]
+
+# Real-money gem pricing (INR). Placeholder until Cashfree is wired up --
+# tell Claude your Cashfree keys and this becomes a real checkout.
+GEM_INR_PRICE = 15  # ₹ per gem
+GEM_BUNDLES = [1, 5, 10, 25]
+CASHFREE_APP_ID = os.getenv("CASHFREE_APP_ID")
+CASHFREE_SECRET_KEY = os.getenv("CASHFREE_SECRET_KEY")
+
+
+def check_telegram_login(payload: dict) -> bool:
+    """
+    Verifies a Telegram Login Widget payload per Telegram's documented
+    algorithm: https://core.telegram.org/widgets/login#checking-authorization
+    """
+    data = dict(payload)
+    received_hash = data.pop("hash", None)
+    if not received_hash or not BOT_TOKEN:
+        return False
+
+    check_string = "\n".join(f"{k}={data[k]}" for k in sorted(data) if data[k] is not None)
+    secret_key = hashlib.sha256(BOT_TOKEN.encode()).digest()
+    computed_hash = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(computed_hash, received_hash):
+        return False
+
+    # auth_date should be recent-ish; reject stale/replayed payloads.
+    auth_date = int(data.get("auth_date", 0))
+    if time.time() - auth_date > 24 * 60 * 60:
+        return False
+
+    return True
+
+
+def get_profile_dict(user_id: int, fallback_name: str = "") -> dict:
+    doc = users_db.find_one({"user_id": user_id}) or {}
+    return {
+        "user_id": user_id,
+        "name": doc.get("first_name", fallback_name),
+        "coins": doc.get("coins", 0),
+        "gems": round(doc.get("gems", 0.0), 2),
+        "streak": doc.get("streak", 0),
+        "xp": doc.get("xp", 0),
+    }
+
+
+@keep_alive_app.route("/api/auth", methods=["POST", "OPTIONS"])
+def api_auth():
+    """Called by the shop site right after the Telegram Login Widget fires."""
+    if request.method == "OPTIONS":
+        return "", 204
+
+    payload = request.get_json(force=True, silent=True) or {}
+
+    if not check_telegram_login(payload):
+        return jsonify({"ok": False, "error": "invalid_login"}), 401
+
+    user_id = int(payload["id"])
+    first_name = payload.get("first_name", "")
+    username = payload.get("username")
+
+    users_db.update_one(
+        {"user_id": user_id},
+        {"$set": {"first_name": first_name, "username": username}},
+        upsert=True,
+    )
+
+    return jsonify({"ok": True, "profile": get_profile_dict(user_id, first_name)})
+
+
+@keep_alive_app.route("/api/profile/<int:user_id>", methods=["GET"])
+def api_profile(user_id):
+    """Lets an already-logged-in session refresh its balance without re-auth."""
+    return jsonify({"ok": True, "profile": get_profile_dict(user_id)})
+
+
+@keep_alive_app.route("/api/shop-items", methods=["GET"])
+def api_shop_items():
+    return jsonify({
+        "ok": True,
+        "items": SHOP_ITEMS,
+        "gems": {"price_inr": GEM_INR_PRICE, "bundles": GEM_BUNDLES},
+    })
+
+
+@keep_alive_app.route("/api/gems/create-order", methods=["POST", "OPTIONS"])
+def api_create_gem_order():
+    """
+    Stub for the Cashfree order-creation call. Once CASHFREE_APP_ID /
+    CASHFREE_SECRET_KEY are set, this should call Cashfree's Orders API and
+    return the payment_session_id the frontend needs to launch checkout.
+    Left unconfigured on purpose until the Cashfree account is ready.
+    """
+    if request.method == "OPTIONS":
+        return "", 204
+
+    if not (CASHFREE_APP_ID and CASHFREE_SECRET_KEY):
+        return jsonify({
+            "ok": False,
+            "error": "payment_not_configured",
+            "message": "Gem purchases aren't live yet — check back soon!",
+        }), 503
+
+    # TODO: real Cashfree order creation goes here once keys are configured.
+    return jsonify({"ok": False, "error": "not_implemented"}), 501
 
 # ==========================
 # BOMB GAME CONFIG
