@@ -2355,7 +2355,11 @@ def main():
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_message))
 
-    app.run_polling()
+    # drop_pending_updates clears out any stuck/conflicting getUpdates
+    # session from a previous instance (e.g. the old Render deploy hadn't
+    # fully shut down yet), which is what causes
+    # "telegram.error.Conflict: terminated by other getUpdates request".
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
