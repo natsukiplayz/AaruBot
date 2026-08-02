@@ -23,7 +23,6 @@ from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    WebAppInfo,
     MessageEntity,
     InputFile,
 )
@@ -715,38 +714,6 @@ async def shop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Tap below to open the Aaru shop — icons, gems, and gifts.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
-
-# ==========================================================
-# LUDO GAME
-# ==========================================================
-
-async def ludo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[
-        InlineKeyboardButton(
-            "🎮 𝐄𝐧𝐭𝐞𝐫 𝐋𝐮𝐝𝐨",
-            web_app=WebAppInfo(url="https://aarubot.onrender.com")
-        )
-    ]]
-
-    text = """
-🎲 <b>𝐀𝐚𝐫𝐮 𝐋𝐮𝐝𝐨 𝐆𝐚𝐦𝐞</b>
-
-🎮 <b>𝐏𝐥𝐚𝐲 𝐋𝐮𝐝𝐨 𝐰𝐢𝐭𝐡 𝐨𝐭𝐡𝐞𝐫 𝐩𝐥𝐚𝐲𝐞𝐫𝐬 𝐚𝐧𝐝 𝐞𝐚𝐫𝐧 𝐜𝐨𝐢𝐧𝐬!</b>
-
-🏆 𝐖𝐢𝐧 𝐌𝐚𝐭𝐜𝐡𝐞𝐬
-💰 𝐄𝐚𝐫𝐧 𝐑𝐞𝐰𝐚𝐫𝐝𝐬
-🎮 𝐇𝐚𝐯𝐞 𝐅𝐮𝐧
-"""
-
-    if update.effective_chat.type != ChatType.PRIVATE:
-        await update.message.reply_text(
-            "❌ <b>𝐓𝐡𝐢𝐬 𝐠𝐚𝐦𝐞 𝐜𝐚𝐧 𝐨𝐧𝐥𝐲 𝐛𝐞 𝐨𝐩𝐞𝐧𝐞𝐝 𝐢𝐧 𝐩𝐫𝐢𝐯𝐚𝐭𝐞 𝐜𝐡𝐚𝐭.</b>\n\n"
-            "𝐏𝐥𝐞𝐚𝐬𝐞 𝐬𝐭𝐚𝐫𝐭 𝐭𝐡𝐞 𝐛𝐨𝐭 𝐢𝐧 𝐏𝐌 𝐚𝐧𝐝 𝐭𝐫𝐲 𝐚𝐠𝐚𝐢𝐧.",
-            parse_mode=ParseMode.HTML
-        )
-        return
-
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
 
 # ==========================================================
 # FONT TABLES / COMMAND
@@ -2203,8 +2170,7 @@ async def active_minigames_cmd(update: Update, context: ContextTypes.DEFAULT_TYP
     bomb_count = len(ACTIVE_BOMB_GAMES)
     text = (
         ":active: Aᴄᴛɪᴠᴇ Gᴀᴍᴇꜱ\n\n"
-        f"MGames: {bomb_count}\n"
-        f"Ludo: N/A"
+        f"MGames: {bomb_count}"
     )
     reply, entities = convert_premium_emojis(text)
     await update.message.reply_text(reply, entities=entities)
@@ -2351,7 +2317,6 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("shop", shop_cmd))
-    app.add_handler(CommandHandler("ludo", ludo))
     app.add_handler(CommandHandler("f", font))
     app.add_handler(CommandHandler("eid", eid))
     app.add_handler(CommandHandler("addpack", addpack))
