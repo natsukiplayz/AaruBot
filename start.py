@@ -1,11 +1,8 @@
-from threading import Thread
 import subprocess
 
-# Start Flask Ludo server
-def run_web():
-    subprocess.run(["python", "web_server.py"])
-
-Thread(target=run_web, daemon=True).start()
-
-# Start Telegram bot
+# Start Telegram bot.
+# Aru.py already runs its own Flask keep-alive server internally
+# (see keep_alive() in Aru.py), so there's no need for a separate
+# web_server.py process here anymore -- that was only for the Ludo
+# WebSocket relay, which has been removed.
 subprocess.run(["python", "Aru.py"])
