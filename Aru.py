@@ -109,7 +109,7 @@ BOT_USERNAME = "im_aarubot"  # used by the shop site's login deep-link
 # "Login successful" button sent after a web-login deep link completes).
 # Set the SHOP_URL env var on Render once the shop site is hosted somewhere
 # real -- this fallback is just a placeholder.
-SHOP_URL = os.getenv("SHOP_URL", "https://REPLACE-WITH-YOUR-SHOP-SITE-URL")
+SHOP_URL = os.getenv("SHOP_URL", "https://aarushop.oneapp.dev")
 
 # Process start time, used for /stats uptime.
 BOT_START_TIME = time.time()
