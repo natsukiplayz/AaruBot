@@ -66,7 +66,13 @@ def home():
 
 
 def run_web():
-    keep_alive_app.run(host="0.0.0.0", port=8080)
+    # Render (and most PaaS hosts) assign a random port via the PORT env var
+    # and route traffic to whatever your app actually binds to. Hardcoding
+    # 8080 means Render's health check can never find the service, and the
+    # deploy looks "successful" but the URL never responds. Always bind to
+    # $PORT, falling back to 8080 only for local testing.
+    port = int(os.getenv("PORT", 8080))
+    keep_alive_app.run(host="0.0.0.0", port=port)
 
 
 def keep_alive():
@@ -77,7 +83,12 @@ def keep_alive():
 # CONFIG
 # ==========================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-MONGO_URI = os.getenv("MONGO_URI")
+MONGO_URI = os.getenv(
+    "MONGO_URI",
+    "mongodb://natsukiplayzzz_db_user:LSTTxFwIWGLmDj5L@ac-wfwjqfz-shard-00-00.lhpef0t.mongodb.net:27017,"
+    "ac-wfwjqfz-shard-00-01.lhpef0t.mongodb.net:27017,ac-wfwjqfz-shard-00-02.lhpef0t.mongodb.net:27017/"
+    "?ssl=true&replicaSet=atlas-121cxx-shard-0&authSource=admin&appName=yuukibot",
+)
 
 OD1 = 8752939430
 OD2 = 6462525689
@@ -96,7 +107,9 @@ BOT_USERNAME = "im_aarubot"  # used by the shop site's login deep-link
 
 # Public URL of aaru-shop.html (used in the /shop command and the
 # "Login successful" button sent after a web-login deep link completes).
-SHOP_URL = os.getenv("SHOP_URL", "https://aarushop.oneapp.dev")
+# Set the SHOP_URL env var on Render once the shop site is hosted somewhere
+# real -- this fallback is just a placeholder.
+SHOP_URL = os.getenv("SHOP_URL", "https://REPLACE-WITH-YOUR-SHOP-SITE-URL")
 
 # Process start time, used for /stats uptime.
 BOT_START_TIME = time.time()
@@ -166,7 +179,7 @@ CASHFREE_BASE = (
     "https://sandbox.cashfree.com/pg" if CASHFREE_ENV == "sandbox"
     else "https://api.cashfree.com/pg"
 )
-SHOP_RETURN_URL = os.getenv("SHOP_RETURN_URL", "https://aarushop.oneapp.dev/gems/return?order_id={order_id}")
+SHOP_RETURN_URL = os.getenv("SHOP_RETURN_URL", "https://REPLACE-WITH-YOUR-SHOP-SITE-URL/gems/return?order_id={order_id}")
 
 # ==========================================================
 # GIFTS
